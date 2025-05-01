@@ -1,0 +1,47 @@
+package model
+
+import (
+	"time"
+)
+
+// Domain represents a domain to be monitored
+type Domain struct {
+	ID         int       `json:"id" db:"id"`
+	UserID     int       `json:"user_id" db:"user_id"`
+	Name       string    `json:"name" db:"name"`
+	Active     bool      `json:"active" db:"active"`
+	Interval   int       `json:"interval" db:"interval"` // Interval in minutes
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
+	LastStatus int       `json:"last_status" db:"last_status"`
+	LastCheck  time.Time `json:"last_check,omitempty" db:"last_check"`
+}
+
+// DomainAddRequest represents the request to add a new domain
+type DomainAddRequest struct {
+	Name     string `json:"name" binding:"required"`
+	Interval int    `json:"interval"` // If not provided, default will be used
+}
+
+// DomainListResponse represents the response for domain listing
+type DomainListResponse struct {
+	Domains      []Domain `json:"domains"`
+	TotalDomains int      `json:"total_domains"`
+	DomainLimit  int      `json:"domain_limit"`
+}
+
+// DomainStatusResponse represents the response for domain status
+type DomainStatusResponse struct {
+	ID           int       `json:"id"`
+	Name         string    `json:"name"`
+	Active       bool      `json:"active"`
+	LastStatus   int       `json:"last_status"`
+	LastCheck    time.Time `json:"last_check"`
+	ResponseTime int       `json:"response_time"` // in milliseconds
+}
+
+// DomainUpdateRequest represents the request to update domain settings
+type DomainUpdateRequest struct {
+	Active   *bool `json:"active"`
+	Interval *int  `json:"interval"` // Interval in minutes
+}

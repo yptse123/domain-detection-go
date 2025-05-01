@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+    container_name: domain-detection-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/domain_detection?sslmode=disable
+      - JWT_SECRET=change-this-in-production
+      - ENCRYPTION_KEY=change-this-in-production
+      - ENVIRONMENT=development
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    networks:
+      - domain-detection-network
+
+  db:
+    image: postgres:16-alpine
+    container_name: domain-detection-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=domain_detection
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - domain-detection-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrations:
+    image: migrate/migrate:v4.16.2
+    container_name: domain-detection-migrations
+    volumes:
+      - ./migrations:/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - domain-detection-network
+    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@db:5432/domain_detection?sslmode=disable", "up"]
+    # docker-compose run --rm migrations
+
+networks:
+  domain-detection-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
