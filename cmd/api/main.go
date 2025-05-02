@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -13,6 +14,7 @@ import (
 	"domain-detection-go/internal/domain"
 	"domain-detection-go/internal/handler"
 	"domain-detection-go/internal/middleware"
+	"domain-detection-go/internal/monitor"
 	"domain-detection-go/pkg/config"
 )
 
@@ -27,13 +29,30 @@ func main() {
 	}
 	defer db.Close()
 
+	// Initialize monitor service
+	uptrendsConfig := monitor.UptrendsConfig{
+		APIKey:      os.Getenv("UPTRENDS_API_KEY"),
+		APIUsername: os.Getenv("UPTRENDS_USERNAME"),
+		BaseURL:     os.Getenv("UPTRENDS_API_URL"), // Optional
+		MaxRetries:  3,
+		RetryDelay:  2 * time.Second,
+	}
+	uptrendsClient := monitor.NewUptrendsClient(uptrendsConfig)
+
 	// Initialize services
 	authService := auth.NewAuthService(db, cfg.JWTSecret, cfg.EncryptionKey)
-	domainService := domain.NewDomainService(db)
+	domainService := domain.NewDomainService(db, uptrendsClient)
+	monitorService := monitor.NewMonitorService(uptrendsClient, domainService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
 	domainHandler := handler.NewDomainHandler(domainService)
+	// monitorHandler := handler.NewMonitorHandler(monitorService)
+
+	// Start the scheduled domain check in a goroutine
+	go func() {
+		monitorService.RunScheduledChecks()
+	}()
 
 	// Set up Gin router
 	router := gin.Default()
@@ -71,6 +90,7 @@ func main() {
 		protected.GET("/domains/:id", domainHandler.GetDomain)
 		protected.POST("/domains", domainHandler.AddDomain)
 		protected.PUT("/domains/:id", domainHandler.UpdateDomain)
+		protected.PUT("/domains/batch", domainHandler.UpdateAllDomains)
 		protected.DELETE("/domains/:id", domainHandler.DeleteDomain)
 
 		// Admin routes

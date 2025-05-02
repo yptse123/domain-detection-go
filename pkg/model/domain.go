@@ -6,15 +6,16 @@ import (
 
 // Domain represents a domain to be monitored
 type Domain struct {
-	ID         int       `json:"id" db:"id"`
-	UserID     int       `json:"user_id" db:"user_id"`
-	Name       string    `json:"name" db:"name"`
-	Active     bool      `json:"active" db:"active"`
-	Interval   int       `json:"interval" db:"interval"` // Interval in minutes
-	CreatedAt  time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
-	LastStatus int       `json:"last_status" db:"last_status"`
-	LastCheck  time.Time `json:"last_check,omitempty" db:"last_check"`
+	ID          int       `json:"id" db:"id"`
+	UserID      int       `json:"user_id" db:"user_id"`
+	Name        string    `json:"name" db:"name"`
+	Active      bool      `json:"active" db:"active"`
+	Interval    int       `json:"interval" db:"interval"` // Interval in minutes
+	MonitorGuid string    `db:"monitor_guid" json:"monitor_guid"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	LastStatus  int       `json:"last_status" db:"last_status"`
+	LastCheck   time.Time `json:"last_check,omitempty" db:"last_check"`
 }
 
 // DomainAddRequest represents the request to add a new domain
@@ -44,4 +45,10 @@ type DomainStatusResponse struct {
 type DomainUpdateRequest struct {
 	Active   *bool `json:"active"`
 	Interval *int  `json:"interval"` // Interval in minutes
+}
+
+// DomainWithRegion extends Domain with user region info
+type DomainWithRegion struct {
+	Domain
+	UserRegion string `db:"user_region" json:"user_region"`
 }

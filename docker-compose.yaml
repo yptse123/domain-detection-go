@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   app:
     build:
       context: .
     container_name: domain-detection-api
-    restart: unless-stopped
+    # restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
@@ -13,6 +11,10 @@ services:
       - JWT_SECRET=change-this-in-production
       - ENCRYPTION_KEY=change-this-in-production
       - ENVIRONMENT=development
+      # Add the Uptrends API credentials
+      - UPTRENDS_API_KEY=wtsvtKSCXHjQrVlfPEpY9nBlbDMVvMTx
+      - UPTRENDS_USERNAME=c774c2e5d96745f88a5b9908cc8c8ec4
+      - UPTRENDS_API_URL=https://api.uptrends.com/v4
     depends_on:
       migrations:
         condition: service_completed_successfully
