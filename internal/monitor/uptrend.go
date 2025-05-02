@@ -92,17 +92,6 @@ func getCheckpointIdForRegion(region string) string {
 	}
 }
 
-// New function to get all checkpoint IDs for a region
-// (useful for regions like China with multiple checkpoints)
-func getAllCheckpointIdsForRegion(region string) []string {
-	switch region {
-	case "CN", "China":
-		return []string{"77", "135", "198"} // Beijing, Zhengzhou, Chongqing
-	default:
-		return []string{getCheckpointIdForRegion(region)}
-	}
-}
-
 // Updated GetCheckpoints function to parse the correct response format
 func (c *UptrendsClient) GetCheckpoints() (map[string]string, error) {
 	// Wait for rate limiter

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"domain-detection-go/internal/domain"
+	"domain-detection-go/pkg/model"
 )
 
 // MonitorService manages domain monitoring operations
@@ -35,14 +36,16 @@ func NewMonitorService(uptrendsClient *UptrendsClient, domainService *domain.Dom
 	}
 }
 
-// checkAllActiveDomains checks all active domains and updates their status
+// checkAllActiveDomains checks domains that are due for checking based on their interval
 func (s *MonitorService) checkAllActiveDomains() {
-	// Get all active domains with monitor GUIDs from the domain service
-	domains, err := s.domainService.GetAllDomainsWithMonitors()
+	// Get all active domains with monitor GUIDs
+	domains, err := s.domainService.GetAllActiveDomainsWithMonitors()
 	if err != nil {
 		log.Printf("Error getting active domains: %v", err)
 		return
 	}
+
+	now := time.Now()
 
 	for _, domain := range domains {
 		// Skip domains without monitor GUID
@@ -50,36 +53,57 @@ func (s *MonitorService) checkAllActiveDomains() {
 			continue
 		}
 
+		// Check if this domain is due for checking based on its interval
+		if !isDomainDueForCheck(domain, now) {
+			continue
+		}
+
+		log.Printf("Checking domain %s (interval: %d minutes)", domain.Name, domain.Interval)
+
 		// Use try-catch pattern with defer/recover to prevent panics
-		func() {
+		func(d model.Domain) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("Recovered from panic while checking domain %s: %v", domain.Name, r)
+					log.Printf("Recovered from panic while checking domain %s: %v", d.Name, r)
 				}
 			}()
 
-			result, err := s.uptrendsClient.GetLatestMonitorCheck(domain.MonitorGuid)
+			result, err := s.uptrendsClient.GetLatestMonitorCheck(d.MonitorGuid)
 			if err != nil {
-				log.Printf("Error checking domain %s: %v", domain.Name, err)
+				log.Printf("Error checking domain %s: %v", d.Name, err)
 				return
 			}
 
 			// Only proceed if result is not nil
 			if result == nil {
-				log.Printf("No result returned for domain %s", domain.Name)
+				log.Printf("No result returned for domain %s", d.Name)
 				return
 			}
 
 			// Fill in domain name
-			result.Domain = domain.Name
+			result.Domain = d.Name
 
 			// Update domain status in database
-			err = s.domainService.UpdateDomainStatus(domain.ID, result.StatusCode, result.ErrorCode, result.TotalTime, result.ErrorDescription)
+			err = s.domainService.UpdateDomainStatus(d.ID, result.StatusCode, result.ErrorCode, result.TotalTime, result.ErrorDescription)
 			if err != nil {
-				log.Printf("Error updating status for domain %s: %v", domain.Name, err)
+				log.Printf("Error updating status for domain %s: %v", d.Name, err)
 			}
-		}()
+		}(domain)
 	}
+}
+
+// isDomainDueForCheck determines if a domain is due for a check based on its interval
+func isDomainDueForCheck(domain model.Domain, now time.Time) bool {
+	// If domain has never been checked, it's due for a check
+	if domain.LastCheck.IsZero() {
+		return true
+	}
+
+	// Calculate next check time based on interval (in minutes)
+	nextCheckTime := domain.LastCheck.Add(time.Duration(domain.Interval) * time.Minute)
+
+	// If the next check time has passed, the domain is due for a check
+	return now.After(nextCheckTime) || now.Equal(nextCheckTime)
 }
 
 // RunScheduledChecks performs periodic checks on all active domains

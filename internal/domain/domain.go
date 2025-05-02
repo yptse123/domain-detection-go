@@ -149,7 +149,9 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error) {
 	var domains []model.Domain
 	err := s.db.Select(&domains, `
-        SELECT id, user_id, name, active, interval, last_status, last_check, created_at, updated_at
+        SELECT id, user_id, name, active, interval, last_status, error_code, 
+               total_time, error_description, monitor_guid, last_check, 
+               created_at, updated_at
         FROM domains
         WHERE user_id = $1
         ORDER BY created_at DESC
@@ -182,7 +184,9 @@ func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error)
 func (s *DomainService) GetDomain(domainID, userID int) (*model.Domain, error) {
 	var domain model.Domain
 	err := s.db.Get(&domain, `
-        SELECT id, user_id, name, active, interval, last_status, last_check, created_at, updated_at
+        SELECT id, user_id, name, active, interval, last_status, error_code,
+               total_time, error_description, monitor_guid, last_check, 
+               created_at, updated_at
         FROM domains
         WHERE id = $1 AND user_id = $2
     `, domainID, userID)
@@ -345,6 +349,28 @@ func (s *DomainService) GetAllActiveDomains() ([]model.Domain, error) {
 
 	err := s.db.Select(&domains, query)
 	return domains, err
+}
+
+// GetAllActiveDomainsWithMonitors gets all active domains with monitor GUIDs
+func (s *DomainService) GetAllActiveDomainsWithMonitors() ([]model.Domain, error) {
+	var domains []model.Domain
+
+	query := `
+        SELECT id, user_id, name, active, interval, monitor_guid, last_status,
+               error_code, total_time, error_description, last_check, 
+               created_at, updated_at
+        FROM domains 
+        WHERE active = true
+        AND monitor_guid IS NOT NULL 
+        AND monitor_guid != ''
+    `
+
+	err := s.db.Select(&domains, query)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching active domains with monitors: %w", err)
+	}
+
+	return domains, nil
 }
 
 // UpdateDomainStatus updates the status of a domain
