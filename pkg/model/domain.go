@@ -55,3 +55,13 @@ type DomainWithRegion struct {
 	Domain
 	UserRegion string `db:"user_region" json:"user_region"`
 }
+
+// Available checks if the domain is currently available based on last status
+func (d Domain) Available() bool {
+	if d.LastCheck.IsZero() {
+		return false
+	}
+
+	// Consider successful if status is between 200-399
+	return d.LastStatus >= 200 && d.LastStatus < 400
+}

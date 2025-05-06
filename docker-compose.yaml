@@ -15,6 +15,7 @@ services:
       - UPTRENDS_API_KEY=wtsvtKSCXHjQrVlfPEpY9nBlbDMVvMTx
       - UPTRENDS_USERNAME=c774c2e5d96745f88a5b9908cc8c8ec4
       - UPTRENDS_API_URL=https://api.uptrends.com/v4
+      - TELEGRAM_BOT_TOKEN=7762941862:AAGW96BmgkGouDpgAYJxITCOISLuOrXX_4Y
     depends_on:
       migrations:
         condition: service_completed_successfully

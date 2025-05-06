@@ -15,6 +15,7 @@ import (
 	"domain-detection-go/internal/handler"
 	"domain-detection-go/internal/middleware"
 	"domain-detection-go/internal/monitor"
+	"domain-detection-go/internal/notification"
 	"domain-detection-go/pkg/config"
 )
 
@@ -39,14 +40,20 @@ func main() {
 	}
 	uptrendsClient := monitor.NewUptrendsClient(uptrendsConfig)
 
+	telegramConfig := notification.TelegramConfig{
+		APIToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
+	}
+
 	// Initialize services
 	authService := auth.NewAuthService(db, cfg.JWTSecret, cfg.EncryptionKey)
 	domainService := domain.NewDomainService(db, uptrendsClient)
-	monitorService := monitor.NewMonitorService(uptrendsClient, domainService)
+	telegramService := notification.NewTelegramService(telegramConfig, db)
+	monitorService := monitor.NewMonitorService(uptrendsClient, domainService, telegramService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
 	domainHandler := handler.NewDomainHandler(domainService)
+	telegramHandler := handler.NewTelegramHandler(telegramService)
 	// monitorHandler := handler.NewMonitorHandler(monitorService)
 
 	// Start the scheduled domain check in a goroutine
@@ -92,6 +99,13 @@ func main() {
 		protected.PUT("/domains/:id", domainHandler.UpdateDomain)
 		protected.PUT("/domains/batch", domainHandler.UpdateAllDomains)
 		protected.DELETE("/domains/:id", domainHandler.DeleteDomain)
+
+		// Set up Telegram API routes
+		protected.GET("/telegram/bot", telegramHandler.GetBotInfo)
+		protected.GET("/telegram/configs", telegramHandler.GetTelegramConfigs)
+		protected.POST("/telegram/configs", telegramHandler.AddTelegramConfig)
+		protected.PUT("/telegram/configs/:id", telegramHandler.UpdateTelegramConfig)
+		protected.DELETE("/telegram/configs/:id", telegramHandler.DeleteTelegramConfig)
 
 		// Admin routes
 		admin := protected.Group("/admin")

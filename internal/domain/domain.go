@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"log"
-	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -69,8 +68,8 @@ func (s *DomainService) ValidateDomainName(domain string) bool {
 	}
 
 	// Check if domain exists (optional - can be expensive)
-	_, err := net.LookupHost(domain)
-	return err == nil
+	// _, err := net.LookupHost(domain)
+	return true
 }
 
 // AddDomain adds a new domain to monitor
