@@ -144,6 +144,178 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 	return domainID, nil
 }
 
+// AddBatchDomains adds multiple domains in a batch
+func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequest) model.DomainBatchAddResponse {
+	response := model.DomainBatchAddResponse{
+		Success: []model.DomainAddResult{},
+		Failed:  []model.DomainAddResult{},
+		Total:   len(req.Domains),
+	}
+
+	// Check if user has reached the domain limit
+	var currentCount int
+	err := s.db.Get(&currentCount, "SELECT COUNT(*) FROM domains WHERE user_id = $1", userID)
+	if err != nil {
+		log.Printf("Error checking domain count: %v", err)
+		for _, domain := range req.Domains {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domain,
+				Reason: "Internal server error: could not check domain count",
+			})
+		}
+		return response
+	}
+
+	limit, err := s.GetDomainLimit(userID)
+	if err != nil {
+		log.Printf("Error getting domain limit: %v", err)
+		for _, domain := range req.Domains {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domain,
+				Reason: "Internal server error: could not check domain limit",
+			})
+		}
+		return response
+	}
+
+	// Check how many domains we can still add
+	availableSlots := limit - currentCount
+	if availableSlots <= 0 {
+		// User has reached their domain limit
+		for _, domain := range req.Domains {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domain,
+				Reason: "Domain limit reached",
+			})
+		}
+		return response
+	}
+
+	// Get user region
+	var userRegion string
+	err = s.db.Get(&userRegion, "SELECT region FROM users WHERE id = $1", userID)
+	if err != nil {
+		log.Printf("Error getting user region: %v", err)
+		for _, domain := range req.Domains {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domain,
+				Reason: "Internal server error: could not retrieve user region",
+			})
+		}
+		return response
+	}
+
+	// Set default interval if not provided
+	interval := req.Interval
+	if interval == 0 {
+		interval = DEFAULT_INTERVAL
+	} else if interval != 10 && interval != 20 && interval != 30 {
+		for _, domain := range req.Domains {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domain,
+				Reason: "Invalid interval - must be 10, 20, or 30 minutes",
+			})
+		}
+		return response
+	}
+
+	// Get existing domains for this user to avoid duplicates
+	existingDomains := make(map[string]bool)
+	rows, err := s.db.Query("SELECT name FROM domains WHERE user_id = $1", userID)
+	if err != nil {
+		log.Printf("Error checking existing domains: %v", err)
+		for _, domain := range req.Domains {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domain,
+				Reason: "Internal server error: could not check existing domains",
+			})
+		}
+		return response
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		existingDomains[strings.ToLower(name)] = true
+	}
+
+	// Process each domain
+	for _, domainName := range req.Domains {
+		// Skip if we've reached the limit
+		if response.Added >= availableSlots {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domainName,
+				Reason: "Domain limit reached",
+			})
+			continue
+		}
+
+		// Normalize domain name
+		domainName = strings.TrimSpace(domainName)
+
+		// Validate domain name
+		if !s.ValidateDomainName(domainName) {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domainName,
+				Reason: "Invalid domain name format",
+			})
+			continue
+		}
+
+		// Check if domain already exists (case insensitive)
+		if existingDomains[strings.ToLower(domainName)] {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domainName,
+				Reason: "Domain already exists",
+			})
+			continue
+		}
+
+		// Create monitor in monitoring service
+		monitorName := fmt.Sprintf("Domain Check - %s", domainName)
+		monitorGuid := ""
+		if s.monitorClient != nil {
+			var err error
+			monitorGuid, err = s.monitorClient.CreateMonitor(domainName, monitorName, userRegion)
+			if err != nil {
+				log.Printf("Failed to create monitor for %s: %v", domainName, err)
+				// Continue without monitor - we'll try again later
+			}
+		}
+
+		// Insert the domain
+		var domainID int
+		err = s.db.QueryRow(`
+            INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, true, $5, $5)
+            RETURNING id
+        `, userID, domainName, interval, monitorGuid, time.Now()).Scan(&domainID)
+
+		if err != nil {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domainName,
+				Reason: "Failed to insert domain: " + err.Error(),
+			})
+			continue
+		}
+
+		// Mark domain as successfully added
+		response.Success = append(response.Success, model.DomainAddResult{
+			Name: domainName,
+			ID:   domainID,
+		})
+		response.Added++
+
+		// Add to our existing domains map to prevent duplicates within the batch
+		existingDomains[strings.ToLower(domainName)] = true
+	}
+
+	return response
+}
+
 // GetDomains gets all domains for a user
 func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error) {
 	var domains []model.Domain

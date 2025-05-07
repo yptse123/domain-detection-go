@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"domain-detection-go/internal/domain"
 	"domain-detection-go/pkg/model"
@@ -118,6 +120,67 @@ func (h *DomainHandler) AddDomain(c *gin.Context) {
 		"message": "Domain added successfully",
 		"id":      domainID,
 	})
+}
+
+// AddBatchDomains handles the addition of multiple domains in one request
+func (h *DomainHandler) AddBatchDomains(c *gin.Context) {
+	// Get user ID from context
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Parse request body
+	var req model.DomainBatchAddRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate request
+	if len(req.Domains) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No domains provided"})
+		return
+	}
+
+	// Limit the number of domains that can be processed in a single request
+	const MAX_BATCH_SIZE = 50
+	if len(req.Domains) > MAX_BATCH_SIZE {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Too many domains in batch. Maximum allowed is %d", MAX_BATCH_SIZE),
+		})
+		return
+	}
+
+	// Remove duplicates from the request
+	uniqueDomains := make(map[string]bool)
+	var filteredDomains []string
+	for _, domain := range req.Domains {
+		// Normalize domain (convert to lowercase, trim spaces)
+		domain = strings.TrimSpace(domain)
+		if domain == "" {
+			continue
+		}
+		if !uniqueDomains[strings.ToLower(domain)] {
+			uniqueDomains[strings.ToLower(domain)] = true
+			filteredDomains = append(filteredDomains, domain)
+		}
+	}
+	req.Domains = filteredDomains
+
+	// Process batch domain addition
+	response := h.domainService.AddBatchDomains(userID, req)
+
+	// Return appropriate status code based on results
+	statusCode := http.StatusOK
+	if response.Added == 0 {
+		statusCode = http.StatusBadRequest
+	} else if len(response.Failed) > 0 {
+		statusCode = http.StatusPartialContent // 206 Partial Content
+	}
+
+	c.JSON(statusCode, response)
 }
 
 // UpdateDomain handles PUT /api/domains/:id
