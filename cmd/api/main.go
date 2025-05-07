@@ -66,7 +66,7 @@ func main() {
 
 	// Apply comprehensive CORS middleware
 	corsConfig := cors.Config{
-		AllowOrigins:     []string{"http://localhost:8081"}, // Your Vue frontend URL
+		AllowOrigins:     []string{"*"}, // Your Vue frontend URL
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length", "Content-Type"},
