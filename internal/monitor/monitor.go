@@ -264,6 +264,11 @@ func (s *MonitorService) checkDomainDirect(domain string) (*model.DomainCheckRes
 	// Calculate response time regardless of error
 	responseTime := int(time.Since(start).Milliseconds())
 
+	// Log any errors from the HTTP request
+	if err != nil {
+		log.Printf("Direct check error for domain %s: %v", domain, err)
+	}
+
 	// Check for connection errors
 	if err != nil {
 		// Return result with error info
@@ -284,6 +289,10 @@ func (s *MonitorService) checkDomainDirect(domain string) (*model.DomainCheckRes
 	// but don't download everything
 	buffer := make([]byte, 1024)
 	_, err = resp.Body.Read(buffer)
+
+	// Log response details
+	log.Printf("Direct check response for %s: status=%d (%s), time=%dms",
+		domain, resp.StatusCode, resp.Status, responseTime)
 
 	return &model.DomainCheckResult{
 		Domain:           domain,
