@@ -298,7 +298,7 @@ func (s *MonitorService) checkDomainDirect(domain string) (*model.DomainCheckRes
 		Domain:           domain,
 		StatusCode:       resp.StatusCode,
 		ResponseTime:     responseTime,
-		Available:        resp.StatusCode >= 200 && resp.StatusCode < 500,
+		Available:        resp.StatusCode >= 200 && resp.StatusCode < 400,
 		TotalTime:        responseTime,
 		ErrorCode:        0,
 		ErrorDescription: resp.Status,

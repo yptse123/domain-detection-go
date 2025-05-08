@@ -319,13 +319,24 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 // GetDomains gets all domains for a user
 func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error) {
 	var domains []model.Domain
+
+	// Update this query to handle NULL values in the active column
 	err := s.db.Select(&domains, `
-        SELECT id, user_id, name, active, interval, last_status, error_code, 
-               total_time, error_description, monitor_guid, last_check, 
-               created_at, updated_at
-        FROM domains
-        WHERE user_id = $1
-        ORDER BY created_at DESC
+        SELECT 
+            d.id, 
+            d.user_id, 
+            d.name, 
+            COALESCE(d.active, false) AS active, -- Use COALESCE to handle NULL
+            d.status_code, 
+            d.error_code, 
+            d.error_description, 
+            d.last_check, 
+            d.monitor_guid, 
+            d.interval,
+            d.total_time
+        FROM domains d
+        WHERE d.user_id = $1
+        ORDER BY d.created_at DESC
     `, userID)
 
 	if err != nil {
