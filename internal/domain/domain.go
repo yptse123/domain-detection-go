@@ -327,7 +327,7 @@ func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error)
             d.user_id, 
             d.name, 
             COALESCE(d.active, false) AS active, -- Use COALESCE to handle NULL
-            d.status_code, 
+            d.last_status, 
             d.error_code, 
             d.error_description, 
             d.last_check, 
