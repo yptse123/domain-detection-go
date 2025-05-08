@@ -136,7 +136,7 @@ func (s *TelegramService) GetTelegramConfigsForUser(userID int) ([]model.Telegra
 	var configs []model.TelegramConfig
 
 	err := s.db.Select(&configs, `
-        SELECT id, user_id, chat_id, chat_name, is_active, created_at, updated_at
+        SELECT id, user_id, chat_id, chat_name, is_active, notify_on_down, notify_on_up, created_at, updated_at
         FROM telegram_configs
         WHERE user_id = $1
         ORDER BY created_at DESC

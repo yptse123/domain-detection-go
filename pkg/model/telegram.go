@@ -11,13 +11,15 @@ type TelegramBot struct {
 
 // TelegramConfig represents a user's Telegram notification configuration
 type TelegramConfig struct {
-	ID        int       `json:"id" db:"id"`
-	UserID    int       `json:"user_id" db:"user_id"`
-	ChatID    string    `json:"chat_id" db:"chat_id"`
-	ChatName  string    `json:"chat_name" db:"chat_name"`
-	IsActive  bool      `json:"is_active" db:"is_active"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID           int       `json:"id" db:"id"`
+	UserID       int       `json:"user_id" db:"user_id"`
+	ChatID       string    `json:"chat_id" db:"chat_id"`
+	ChatName     string    `json:"chat_name" db:"chat_name"`
+	IsActive     bool      `json:"is_active" db:"is_active"`
+	NotifyOnDown bool      `json:"notify_on_down" db:"notify_on_down"`
+	NotifyOnUp   bool      `json:"notify_on_up" db:"notify_on_up"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // TelegramConfigRequest represents a request to add/update Telegram configuration
