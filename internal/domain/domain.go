@@ -449,22 +449,51 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 		return err
 	}
 
-	// Update domains in database
-	_, err = s.db.Exec(`
-        UPDATE domains
-        SET active = $1, updated_at = $2
-        WHERE user_id = $3
-    `, req.Active, time.Now(), userID)
-	if err != nil {
-		return err
+	// Build dynamic SQL update query based on which fields are provided
+	query := "UPDATE domains SET updated_at = NOW()"
+	params := []interface{}{}
+	paramIndex := 1
+
+	// Add active field if provided
+	if req.Active != nil {
+		query += fmt.Sprintf(", active = $%d", paramIndex)
+		params = append(params, *req.Active)
+		paramIndex++
 	}
 
-	// Update all monitors in Uptrends
-	for _, domain := range domains {
-		if domain.MonitorGuid != "" {
-			if err := s.monitorClient.UpdateMonitorStatus(domain.MonitorGuid, *req.Active); err != nil {
-				log.Printf("Failed to update monitor status for domain %d: %v", domain.ID, err)
-				// Continue with other domains despite errors
+	// Add interval field if provided
+	if req.Interval != nil {
+		// Validate interval
+		if *req.Interval != 10 && *req.Interval != 20 && *req.Interval != 30 {
+			return errors.New("interval must be 10, 20, or 30 minutes")
+		}
+
+		query += fmt.Sprintf(", interval = $%d", paramIndex)
+		params = append(params, *req.Interval)
+		paramIndex++
+	}
+
+	// Add WHERE clause
+	query += fmt.Sprintf(" WHERE user_id = $%d", paramIndex)
+	params = append(params, userID)
+
+	// Execute the update if we have at least one field to update
+	if paramIndex > 1 {
+		log.Printf("Executing query: %s with params: %v", query, params)
+		_, err = s.db.Exec(query, params...)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Only update monitors in Uptrends if active status is changing
+	if req.Active != nil {
+		for _, domain := range domains {
+			if domain.MonitorGuid != "" {
+				if err := s.monitorClient.UpdateMonitorStatus(domain.MonitorGuid, *req.Active); err != nil {
+					log.Printf("Failed to update monitor status for domain %d: %v", domain.ID, err)
+					// Continue with other domains despite errors
+				}
 			}
 		}
 	}
