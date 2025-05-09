@@ -3,6 +3,7 @@ package auth
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -197,4 +198,51 @@ func (s *AuthService) GetUserByID(userID int) (*model.User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+// UpdatePassword updates a user's password after verifying the current password
+func (s *AuthService) UpdatePassword(userID int, currentPassword, newPassword string) error {
+	// Get the user from the database
+	var user model.User
+	err := s.db.Get(&user, "SELECT id, password_hash FROM users WHERE id = $1", userID)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve user: %w", err)
+	}
+
+	// Verify the current password
+	if !s.comparePasswords(user.PasswordHash, currentPassword) {
+		return errors.New("incorrect current password")
+	}
+
+	// Hash the new password
+	hashedPassword, err := s.hashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Update the password in the database
+	_, err = s.db.Exec(
+		"UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+		hashedPassword, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return nil
+}
+
+// Helper method to compare passwords (if not already in the service)
+func (s *AuthService) comparePasswords(hashedPassword, plainPassword string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(plainPassword))
+	return err == nil
+}
+
+// Helper method to hash passwords (if not already in the service)
+func (s *AuthService) hashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }

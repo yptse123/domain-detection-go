@@ -91,6 +91,7 @@ func main() {
 
 		// User profile
 		protected.GET("/user/profile", authHandler.GetUserProfile)
+		protected.PUT("/user/password", authHandler.UpdatePassword)
 
 		// Domain management routes
 		protected.GET("/domains", domainHandler.GetDomains)

@@ -133,3 +133,33 @@ func (h *AuthHandler) GetUserProfile(c *gin.Context) {
 		"region":           user.Region,
 	})
 }
+
+// UpdatePassword handles PUT /api/user/password
+func (h *AuthHandler) UpdatePassword(c *gin.Context) {
+	// Get user ID from context (set by the JWT middleware)
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Parse request
+	var req model.PasswordUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Call service method
+	err := h.authService.UpdatePassword(userID, req.CurrentPassword, req.NewPassword)
+	if err != nil {
+		if err.Error() == "incorrect current password" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Current password is incorrect"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully"})
+}

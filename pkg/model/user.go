@@ -49,3 +49,9 @@ type RegistrationResponse struct {
 	Message string `json:"message"`
 	UserID  int64  `json:"user_id"`
 }
+
+// PasswordUpdateRequest represents the request to update a user's password
+type PasswordUpdateRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=8"`
+}
