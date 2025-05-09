@@ -145,7 +145,7 @@ func (h *DomainHandler) AddBatchDomains(c *gin.Context) {
 	}
 
 	// Limit the number of domains that can be processed in a single request
-	const MAX_BATCH_SIZE = 50
+	const MAX_BATCH_SIZE = 100
 	if len(req.Domains) > MAX_BATCH_SIZE {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": fmt.Sprintf("Too many domains in batch. Maximum allowed is %d", MAX_BATCH_SIZE),
