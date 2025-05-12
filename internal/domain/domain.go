@@ -112,15 +112,6 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 		return 0, fmt.Errorf("error getting user region: %w", err)
 	}
 
-	// Create monitor in monitoring service
-	monitorName := fmt.Sprintf("Domain Check - %s", req.Name)
-	monitorGuid, err := s.monitorClient.CreateMonitor(req.Name, monitorName, userRegion)
-	if err != nil {
-		log.Printf("Failed to create monitor: %v", err)
-		// Continue without monitor - we'll try again later
-		monitorGuid = ""
-	}
-
 	// Set default interval if not provided
 	interval := req.Interval
 	if interval == 0 {
@@ -129,17 +120,20 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 		return 0, errors.New("interval must be 10, 20, or 30 minutes")
 	}
 
-	// Insert the domain with monitor GUID
+	// Insert the domain without monitor GUID initially
 	var domainID int
 	err = s.db.QueryRow(`
         INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, true, $5, $5)
+        VALUES ($1, $2, $3, '', true, $4, $4)
         RETURNING id
-    `, userID, req.Name, interval, monitorGuid, time.Now()).Scan(&domainID)
+    `, userID, req.Name, interval, time.Now()).Scan(&domainID)
 
 	if err != nil {
 		return 0, err
 	}
+
+	// Create the monitor asynchronously in the background
+	go s.createMonitorAsync(domainID, req.Name, userRegion)
 
 	return domainID, nil
 }
@@ -274,25 +268,13 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 			continue
 		}
 
-		// Create monitor in monitoring service
-		monitorName := fmt.Sprintf("Domain Check - %s", domainName)
-		monitorGuid := ""
-		if s.monitorClient != nil {
-			var err error
-			monitorGuid, err = s.monitorClient.CreateMonitor(domainName, monitorName, userRegion)
-			if err != nil {
-				log.Printf("Failed to create monitor for %s: %v", domainName, err)
-				// Continue without monitor - we'll try again later
-			}
-		}
-
-		// Insert the domain
+		// Insert the domain with empty monitor GUID initially
 		var domainID int
 		err = s.db.QueryRow(`
-            INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, true, $5, $5)
-            RETURNING id
-        `, userID, domainName, interval, monitorGuid, time.Now()).Scan(&domainID)
+			INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
+			VALUES ($1, $2, $3, '', true, $4, $4)
+			RETURNING id
+		`, userID, domainName, interval, time.Now()).Scan(&domainID)
 
 		if err != nil {
 			response.Failed = append(response.Failed, model.DomainAddResult{
@@ -301,6 +283,9 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 			})
 			continue
 		}
+
+		// Create monitor asynchronously
+		go s.createMonitorAsync(domainID, domainName, userRegion)
 
 		// Mark domain as successfully added
 		response.Success = append(response.Success, model.DomainAddResult{
@@ -314,6 +299,41 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	}
 
 	return response
+}
+
+// createMonitorAsync creates a monitor in Uptrends and updates the domain record
+func (s *DomainService) createMonitorAsync(domainID int, domainName, userRegion string) {
+	// Add some delay to prevent overwhelming the Uptrends API
+	time.Sleep(100 * time.Millisecond)
+
+	monitorName := fmt.Sprintf("Domain Check - %s", domainName)
+
+	// Create monitor in monitoring service
+	monitorGuid, err := s.monitorClient.CreateMonitor(domainName, monitorName, userRegion)
+	if err != nil {
+		log.Printf("Failed to create monitor for domain %d (%s): %v", domainID, domainName, err)
+		// We'll try again during the next system check, but for now just exit
+		return
+	}
+
+	// Update the domain with the monitor GUID
+	_, err = s.db.Exec(`
+        UPDATE domains 
+        SET monitor_guid = $1, updated_at = NOW() 
+        WHERE id = $2
+    `, monitorGuid, domainID)
+
+	if err != nil {
+		log.Printf("Failed to update domain %d with monitor GUID: %v", domainID, err)
+		// Consider deleting the created monitor to avoid orphaned monitors
+		if monitorGuid != "" {
+			if delErr := s.monitorClient.DeleteMonitor(monitorGuid); delErr != nil {
+				log.Printf("Failed to delete orphaned monitor %s: %v", monitorGuid, delErr)
+			}
+		}
+	} else {
+		log.Printf("Successfully created and linked monitor for domain %d (%s)", domainID, domainName)
+	}
 }
 
 // GetDomains gets all domains for a user
