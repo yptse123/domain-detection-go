@@ -103,11 +103,17 @@ func main() {
 		protected.POST("/domains/batch", domainHandler.AddBatchDomains)
 
 		// Set up Telegram API routes
-		protected.GET("/telegram/bot", telegramHandler.GetBotInfo)
-		protected.GET("/telegram/configs", telegramHandler.GetTelegramConfigs)
-		protected.POST("/telegram/configs", telegramHandler.AddTelegramConfig)
-		protected.PUT("/telegram/configs/:id", telegramHandler.UpdateTelegramConfig)
-		protected.DELETE("/telegram/configs/:id", telegramHandler.DeleteTelegramConfig)
+		telegramRoutes := protected.Group("/telegram")
+		{
+			telegramRoutes.GET("/bot", telegramHandler.GetBotInfo)
+			telegramRoutes.GET("/configs", telegramHandler.GetTelegramConfigs)
+			telegramRoutes.POST("/configs", telegramHandler.AddTelegramConfig)
+			telegramRoutes.PUT("/configs/:id", telegramHandler.UpdateTelegramConfig)
+			telegramRoutes.DELETE("/configs/:id", telegramHandler.DeleteTelegramConfig)
+
+			// Add this new route for sending test messages
+			telegramRoutes.POST("/configs/:id/test", telegramHandler.SendTestMessage)
+		}
 
 		// Admin routes
 		admin := protected.Group("/admin")

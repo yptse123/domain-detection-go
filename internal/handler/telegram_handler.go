@@ -158,3 +158,53 @@ func (h *TelegramHandler) DeleteTelegramConfig(c *gin.Context) {
 		"message": "Telegram configuration deleted successfully",
 	})
 }
+
+// SendTestMessage sends a test message to a specific Telegram configuration
+func (h *TelegramHandler) SendTestMessage(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Get the configuration ID from the URL parameter
+	configIDStr := c.Param("id")
+	configID, err := strconv.Atoi(configIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid configuration ID"})
+		return
+	}
+
+	// Verify the config belongs to this user
+	configs, err := h.telegramService.GetTelegramConfigsForUser(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve configurations"})
+		return
+	}
+
+	var targetConfig *model.TelegramConfig
+	for _, config := range configs {
+		if config.ID == configID {
+			targetConfig = &config
+			break
+		}
+	}
+
+	if targetConfig == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Configuration not found or not owned by you"})
+		return
+	}
+
+	// Send test message
+	message := "🧪 Test Message\n\nThis is a test message from your Domain Detection service. If you're receiving this, your Telegram notifications are configured correctly."
+
+	err = h.telegramService.SendTelegramMessageToConfig(*targetConfig, message)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send test message: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Test message sent successfully",
+	})
+}

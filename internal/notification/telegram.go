@@ -3,6 +3,7 @@ package notification
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -390,5 +391,34 @@ func (s *TelegramService) updateChatID(oldChatID, newChatID string) error {
 	}
 
 	log.Printf("Successfully updated chat ID from %s to %s in database", oldChatID, newChatID)
+	return nil
+}
+
+// SendTelegramMessageToConfig sends a message to a specific telegram configuration
+func (s *TelegramService) SendTelegramMessageToConfig(config model.TelegramConfig, message string) error {
+	// Check if the configuration is active
+	if !config.IsActive {
+		return errors.New("telegram configuration is not active")
+	}
+
+	// Send the message
+	err := s.sendTelegramMessage(config.ChatID, message)
+	if err != nil {
+		return err
+	}
+
+	// Record notification in history
+	now := time.Now()
+	_, err = s.db.Exec(`
+        INSERT INTO notification_history 
+        (domain_id, telegram_config_id, notification_type, notified_at) 
+        VALUES ($1, $2, $3, $4)
+    `, 0, config.ID, "test", now)
+
+	if err != nil {
+		log.Printf("Failed to record test notification in history: %v", err)
+		// Continue despite error in recording history
+	}
+
 	return nil
 }
