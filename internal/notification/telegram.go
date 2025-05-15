@@ -17,6 +17,9 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// Add this constant at the top of your file
+const TIMEZONE_LOCATION = "Asia/Hong_Kong" // UTC+8
+
 // TelegramConfig holds the configuration for Telegram API
 type TelegramConfig struct {
 	APIToken string
@@ -250,25 +253,35 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 		}
 	}
 
+	// Create a location object for UTC+8
+	loc, err := time.LoadLocation(TIMEZONE_LOCATION)
+	if err != nil {
+		// Fallback to UTC+8 fixed offset if location name isn't available
+		loc = time.FixedZone("UTC+8", 8*60*60)
+	}
+
+	// Format time in UTC+8
+	formattedTime := domain.LastCheck.In(loc).Format("2006-01-02 15:04:05")
+
 	// Format message based on domain status
 	var message string
 	if !domain.Available() {
-		message = fmt.Sprintf("🔴 Domain %s is DOWN\n\nStatus: %d\nError: %s\nResponse Time: %dms\nLast Check: %s",
+		message = fmt.Sprintf("🔴 Domain %s is DOWN\n\nStatus: %d\nError: %s\nResponse Time: %dms\nLast Check: %s (UTC+8)",
 			domain.Name, domain.LastStatus, domain.ErrorDescription, domain.TotalTime,
-			domain.LastCheck.Format("2006-01-02 15:04:05"))
+			formattedTime)
 	} else if statusChanged {
-		message = fmt.Sprintf("🟢 Domain %s is back UP\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s",
+		message = fmt.Sprintf("🟢 Domain %s is back UP\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s (UTC+8)",
 			domain.Name, domain.LastStatus, domain.TotalTime,
-			domain.LastCheck.Format("2006-01-02 15:04:05"))
+			formattedTime)
 	} else {
 		// Regular status update
 		statusEmoji := "🟢"
 		if domain.TotalTime > 2000 {
 			statusEmoji = "🟠" // Slow response
 		}
-		message = fmt.Sprintf("%s Domain %s status update\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s",
+		message = fmt.Sprintf("%s Domain %s status update\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s (UTC+8)",
 			statusEmoji, domain.Name, domain.LastStatus, domain.TotalTime,
-			domain.LastCheck.Format("2006-01-02 15:04:05"))
+			formattedTime)
 	}
 
 	// Send to all configured chats
@@ -399,6 +412,17 @@ func (s *TelegramService) SendTelegramMessageToConfig(config model.TelegramConfi
 	// Check if the configuration is active
 	if !config.IsActive {
 		return errors.New("telegram configuration is not active")
+	}
+
+	// If you want to include a timestamp in test messages:
+	if strings.Contains(message, "Test Message") {
+		loc, err := time.LoadLocation(TIMEZONE_LOCATION)
+		if err != nil {
+			loc = time.FixedZone("UTC+8", 8*60*60)
+		}
+
+		now := time.Now().In(loc)
+		message += fmt.Sprintf("\n\nSent at: %s (UTC+8)", now.Format("2006-01-02 15:04:05"))
 	}
 
 	// Send the message
