@@ -51,8 +51,23 @@ func (s *DomainService) GetDomainLimit(userID int) (int, error) {
 	return limit, nil
 }
 
-// ValidateDomainName checks if a domain name is valid
-func (s *DomainService) ValidateDomainName(domain string) bool {
+// ValidateDomainName checks if a domain name or URL is valid
+func (s *DomainService) ValidateDomainName(input string) bool {
+	// Check if the input is a URL with scheme
+	parsedURL, err := url.Parse(input)
+	if err != nil {
+		return false
+	}
+
+	var domain string
+	if parsedURL.Scheme == "http" || parsedURL.Scheme == "https" {
+		// This is a URL with a scheme, extract the host
+		domain = parsedURL.Hostname()
+	} else {
+		// This is likely just a domain name
+		domain = input
+	}
+
 	// Basic validation
 	if len(domain) < 3 || len(domain) > 253 {
 		return false
@@ -64,13 +79,8 @@ func (s *DomainService) ValidateDomainName(domain string) bool {
 	// Check domain pattern
 	pattern := `^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`
 	match, _ := regexp.MatchString(pattern, domain)
-	if !match {
-		return false
-	}
 
-	// Check if domain exists (optional - can be expensive)
-	// _, err := net.LookupHost(domain)
-	return true
+	return match
 }
 
 // AddDomain adds a new domain to monitor
@@ -238,65 +248,84 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	}
 
 	// Process each domain
-	for _, domainName := range req.Domains {
+	for _, domainInput := range req.Domains {
 		// Skip if we've reached the limit
 		if response.Added >= availableSlots {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainName,
+				Name:   domainInput,
 				Reason: "Domain limit reached",
 			})
 			continue
 		}
 
-		// Normalize domain name
-		domainName = strings.TrimSpace(domainName)
+		// Normalize input
+		domainInput = strings.TrimSpace(domainInput)
 
-		// Validate domain name
-		if !s.ValidateDomainName(domainName) {
+		// Validate domain or URL
+		if !s.ValidateDomainName(domainInput) {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainName,
+				Name:   domainInput,
 				Reason: "Invalid domain name format",
 			})
 			continue
 		}
 
-		// Check if domain already exists (case insensitive)
-		if existingDomains[strings.ToLower(domainName)] {
+		// Parse URL to ensure consistent storage
+		parsedURL, err := url.Parse(domainInput)
+		if err != nil {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainName,
+				Name:   domainInput,
+				Reason: "Invalid URL format",
+			})
+			continue
+		}
+
+		// Ensure there's a scheme, default to https if not specified
+		fullURL := domainInput
+		if parsedURL.Scheme == "" {
+			fullURL = "https://" + domainInput
+			parsedURL, _ = url.Parse(fullURL)
+		}
+
+		// Check if domain already exists (case insensitive)
+		// We compare by hostname to avoid duplicates with different protocols
+		hostname := parsedURL.Hostname()
+		if existingDomains[strings.ToLower(hostname)] {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domainInput,
 				Reason: "Domain already exists",
 			})
 			continue
 		}
 
-		// Insert the domain with empty monitor GUID initially
+		// Insert the full URL in the database
 		var domainID int
 		err = s.db.QueryRow(`
-			INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
-			VALUES ($1, $2, $3, '', true, $4, $4)
-			RETURNING id
-		`, userID, domainName, interval, time.Now()).Scan(&domainID)
+        INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
+        VALUES ($1, $2, $3, '', true, $4, $4)
+        RETURNING id
+    `, userID, fullURL, interval, time.Now()).Scan(&domainID)
 
 		if err != nil {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainName,
+				Name:   domainInput,
 				Reason: "Failed to insert domain: " + err.Error(),
 			})
 			continue
 		}
 
-		// Create monitor asynchronously
-		go s.createMonitorAsync(domainID, domainName, userRegion)
+		// Create monitor asynchronously with the full URL
+		go s.createMonitorAsync(domainID, fullURL, userRegion)
 
 		// Mark domain as successfully added
 		response.Success = append(response.Success, model.DomainAddResult{
-			Name: domainName,
+			Name: fullURL, // Return the full URL with protocol
 			ID:   domainID,
 		})
 		response.Added++
 
 		// Add to our existing domains map to prevent duplicates within the batch
-		existingDomains[strings.ToLower(domainName)] = true
+		existingDomains[strings.ToLower(hostname)] = true
 	}
 
 	return response
