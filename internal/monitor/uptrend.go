@@ -172,23 +172,8 @@ func (c *UptrendsClient) CreateMonitor(fullURL string, name string, region strin
 	// Wait for rate limiter
 	<-c.rateLimiter.C
 
-	// Parse the URL to determine protocol
-	parsedURL, err := url.Parse(fullURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL format: %w", err)
-	}
-
 	// Determine MonitorType based on protocol
 	monitorType := "Https"
-	if parsedURL.Scheme == "http" {
-		monitorType = "Http"
-	} else if parsedURL.Scheme == "https" {
-		monitorType = "Https"
-	} else if parsedURL.Scheme == "" {
-		// Default to HTTPS if no protocol provided
-		monitorType = "Https"
-		fullURL = fmt.Sprintf("https://%s", fullURL)
-	}
 
 	// Map region code to Uptrends region ID
 	regionID := getUptrendsRegionID(region)
