@@ -343,7 +343,7 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, userRegion str
 		return
 	}
 
-	monitorName := fmt.Sprintf("Domain Check - %s", fullURL)
+	monitorName := fmt.Sprintf("Domain Check - %s", parsedURL)
 
 	// Create monitor in monitoring service
 	monitorGuid, err := s.monitorClient.CreateMonitor(fullURL, monitorName, userRegion)
