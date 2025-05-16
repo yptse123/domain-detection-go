@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 
 	"domain-detection-go/internal/domain"
@@ -233,8 +234,19 @@ func (s *MonitorService) SyncMonitorStatus() {
 }
 
 // checkDomainDirect performs a direct HTTP check from the application
-func (s *MonitorService) checkDomainDirect(domain string) (*model.DomainCheckResult, error) {
+func (s *MonitorService) checkDomainDirect(fullURL string) (*model.DomainCheckResult, error) {
 	start := time.Now()
+
+	// Parse the URL
+	parsedURL, err := url.Parse(fullURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	// If no scheme provided, default to HTTPS
+	if parsedURL.Scheme == "" {
+		fullURL = fmt.Sprintf("https://%s", fullURL)
+	}
 
 	// Create HTTP client with timeout
 	client := &http.Client{
@@ -249,8 +261,7 @@ func (s *MonitorService) checkDomainDirect(domain string) (*model.DomainCheckRes
 	}
 
 	// Create request
-	url := fmt.Sprintf("https://%s", domain)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
@@ -266,14 +277,14 @@ func (s *MonitorService) checkDomainDirect(domain string) (*model.DomainCheckRes
 
 	// Log any errors from the HTTP request
 	if err != nil {
-		log.Printf("Direct check error for domain %s: %v", domain, err)
+		log.Printf("Direct check error for domain %s: %v", fullURL, err)
 	}
 
 	// Check for connection errors
 	if err != nil {
 		// Return result with error info
 		return &model.DomainCheckResult{
-			Domain:           domain,
+			Domain:           fullURL,
 			StatusCode:       0,
 			ResponseTime:     responseTime,
 			Available:        false,
@@ -292,10 +303,10 @@ func (s *MonitorService) checkDomainDirect(domain string) (*model.DomainCheckRes
 
 	// Log response details
 	log.Printf("Direct check response for %s: status=%d (%s), time=%dms",
-		domain, resp.StatusCode, resp.Status, responseTime)
+		fullURL, resp.StatusCode, resp.Status, responseTime)
 
 	return &model.DomainCheckResult{
-		Domain:           domain,
+		Domain:           fullURL,
 		StatusCode:       resp.StatusCode,
 		ResponseTime:     responseTime,
 		Available:        resp.StatusCode >= 200 && resp.StatusCode < 400,

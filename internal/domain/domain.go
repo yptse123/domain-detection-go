@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -302,16 +303,24 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 }
 
 // createMonitorAsync creates a monitor in Uptrends and updates the domain record
-func (s *DomainService) createMonitorAsync(domainID int, domainName, userRegion string) {
+func (s *DomainService) createMonitorAsync(domainID int, fullURL, userRegion string) {
 	// Add some delay to prevent overwhelming the Uptrends API
 	time.Sleep(100 * time.Millisecond)
 
-	monitorName := fmt.Sprintf("Domain Check - %s", domainName)
+	// Extract domain name for the monitor name
+	parsedURL, err := url.Parse(fullURL)
+	if err != nil {
+		log.Printf("Failed to parse URL for monitor creation: %v", err)
+		return
+	}
+
+	displayName := parsedURL.Hostname()
+	monitorName := fmt.Sprintf("Domain Check - %s", displayName)
 
 	// Create monitor in monitoring service
-	monitorGuid, err := s.monitorClient.CreateMonitor(domainName, monitorName, userRegion)
+	monitorGuid, err := s.monitorClient.CreateMonitor(fullURL, monitorName, userRegion)
 	if err != nil {
-		log.Printf("Failed to create monitor for domain %d (%s): %v", domainID, domainName, err)
+		log.Printf("Failed to create monitor for domain %d (%s): %v", domainID, fullURL, err)
 		// We'll try again during the next system check, but for now just exit
 		return
 	}
@@ -332,7 +341,7 @@ func (s *DomainService) createMonitorAsync(domainID int, domainName, userRegion 
 			}
 		}
 	} else {
-		log.Printf("Successfully created and linked monitor for domain %d (%s)", domainID, domainName)
+		log.Printf("Successfully created and linked monitor for domain %d (%s)", domainID, fullURL)
 	}
 }
 
