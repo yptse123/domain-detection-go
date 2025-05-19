@@ -21,10 +21,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
-		if err.Error() == "invalid region" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid region selected"})
-			return
-		}
+		// Remove region validation condition since it's no longer required
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"})
 		return
 	}

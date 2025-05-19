@@ -178,20 +178,6 @@ func (s *MonitorService) checkAllActiveDomains() {
 	}
 }
 
-// isDomainDueForCheck determines if a domain is due for a check based on its interval
-func isDomainDueForCheck(domain model.Domain, now time.Time) bool {
-	// If domain has never been checked, it's due for a check
-	if domain.LastCheck.IsZero() {
-		return true
-	}
-
-	// Calculate next check time based on interval (in minutes)
-	nextCheckTime := domain.LastCheck.Add(time.Duration(domain.Interval) * time.Minute)
-
-	// If the next check time has passed, the domain is due for a check
-	return now.After(nextCheckTime) || now.Equal(nextCheckTime)
-}
-
 // RunScheduledChecks performs periodic checks on all active domains
 func (s *MonitorService) RunScheduledChecks() {
 	log.Printf("RunScheduledChecks")

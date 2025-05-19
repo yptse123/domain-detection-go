@@ -106,6 +106,16 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 		return 0, errors.New("domain limit reached")
 	}
 
+	// Validate the region
+	var isValidRegion bool
+	err = s.db.Get(&isValidRegion, "SELECT EXISTS(SELECT 1 FROM regions WHERE code = $1 AND is_active = TRUE)", req.Region)
+	if err != nil {
+		return 0, fmt.Errorf("error verifying region: %w", err)
+	}
+	if !isValidRegion {
+		return 0, errors.New("invalid region")
+	}
+
 	// Parse URL to ensure consistent storage
 	parsedURL, err := url.Parse(req.Name)
 	if err != nil {
@@ -137,13 +147,6 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 		return 0, errors.New("domain already exists")
 	}
 
-	// Get user region
-	var userRegion string
-	err = s.db.Get(&userRegion, "SELECT region FROM users WHERE id = $1", userID)
-	if err != nil {
-		return 0, fmt.Errorf("error getting user region: %w", err)
-	}
-
 	// Set default interval if not provided
 	interval := req.Interval
 	if interval == 0 {
@@ -152,20 +155,20 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 		return 0, errors.New("interval must be 10, 20, or 30 minutes")
 	}
 
-	// Insert the domain without monitor GUID initially
+	// Insert the domain with the region specified in the request
 	var domainID int
 	err = s.db.QueryRow(`
-        INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
-        VALUES ($1, $2, $3, '', true, $4, $4)
+        INSERT INTO domains (user_id, name, interval, monitor_guid, active, region, created_at, updated_at)
+        VALUES ($1, $2, $3, '', true, $4, $5, $5)
         RETURNING id
-    `, userID, fullURL, interval, time.Now()).Scan(&domainID)
+    `, userID, fullURL, interval, req.Region, time.Now()).Scan(&domainID)
 
 	if err != nil {
 		return 0, err
 	}
 
-	// Create the monitor asynchronously in the background
-	go s.createMonitorAsync(domainID, fullURL, userRegion)
+	// Create the monitor asynchronously in the background using the domain's region
+	go s.createMonitorAsync(domainID, fullURL, req.Region)
 
 	return domainID, nil
 }
@@ -183,9 +186,9 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	err := s.db.Get(&currentCount, "SELECT COUNT(*) FROM domains WHERE user_id = $1", userID)
 	if err != nil {
 		log.Printf("Error checking domain count: %v", err)
-		for _, domain := range req.Domains {
+		for _, domainItem := range req.Domains {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domain,
+				Name:   domainItem.Name,
 				Reason: "Internal server error: could not check domain count",
 			})
 		}
@@ -195,9 +198,9 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	limit, err := s.GetDomainLimit(userID)
 	if err != nil {
 		log.Printf("Error getting domain limit: %v", err)
-		for _, domain := range req.Domains {
+		for _, domainItem := range req.Domains {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domain,
+				Name:   domainItem.Name,
 				Reason: "Internal server error: could not check domain limit",
 			})
 		}
@@ -208,24 +211,10 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	availableSlots := limit - currentCount
 	if availableSlots <= 0 {
 		// User has reached their domain limit
-		for _, domain := range req.Domains {
+		for _, domainItem := range req.Domains {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domain,
+				Name:   domainItem.Name,
 				Reason: "Domain limit reached",
-			})
-		}
-		return response
-	}
-
-	// Get user region
-	var userRegion string
-	err = s.db.Get(&userRegion, "SELECT region FROM users WHERE id = $1", userID)
-	if err != nil {
-		log.Printf("Error getting user region: %v", err)
-		for _, domain := range req.Domains {
-			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domain,
-				Reason: "Internal server error: could not retrieve user region",
 			})
 		}
 		return response
@@ -236,9 +225,9 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	if interval == 0 {
 		interval = DEFAULT_INTERVAL
 	} else if interval != 10 && interval != 20 && interval != 30 {
-		for _, domain := range req.Domains {
+		for _, domainItem := range req.Domains {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domain,
+				Name:   domainItem.Name,
 				Reason: "Invalid interval - must be 10, 20, or 30 minutes",
 			})
 		}
@@ -250,9 +239,9 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	rows, err := s.db.Query("SELECT name FROM domains WHERE user_id = $1", userID)
 	if err != nil {
 		log.Printf("Error checking existing domains: %v", err)
-		for _, domain := range req.Domains {
+		for _, domainItem := range req.Domains {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domain,
+				Name:   domainItem.Name,
 				Reason: "Internal server error: could not check existing domains",
 			})
 		}
@@ -260,33 +249,60 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	}
 	defer rows.Close()
 
+	// Store normalized hostnames (without protocol) for duplicate detection
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var fullURL string
+		if err := rows.Scan(&fullURL); err != nil {
 			continue
 		}
-		existingDomains[strings.ToLower(name)] = true
+
+		// Extract hostname from URL if it contains protocol
+		parsedURL, err := url.Parse(fullURL)
+		if err == nil && (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
+			existingDomains[strings.ToLower(parsedURL.Hostname())] = true
+		} else {
+			existingDomains[strings.ToLower(fullURL)] = true
+		}
 	}
 
 	// Process each domain
-	for _, domainInput := range req.Domains {
+	for _, domainItem := range req.Domains {
 		// Skip if we've reached the limit
 		if response.Added >= availableSlots {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainInput,
+				Name:   domainItem.Name,
 				Reason: "Domain limit reached",
 			})
 			continue
 		}
 
 		// Normalize input
-		domainInput = strings.TrimSpace(domainInput)
+		domainInput := strings.TrimSpace(domainItem.Name)
 
 		// Validate domain or URL
 		if !s.ValidateDomainName(domainInput) {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainInput,
+				Name:   domainItem.Name,
 				Reason: "Invalid domain name format",
+			})
+			continue
+		}
+
+		// Validate region
+		var isValidRegion bool
+		err = s.db.Get(&isValidRegion, "SELECT EXISTS(SELECT 1 FROM regions WHERE code = $1 AND is_active = TRUE)", domainItem.Region)
+		if err != nil {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domainItem.Name,
+				Reason: "Internal server error: could not verify region",
+			})
+			continue
+		}
+
+		if !isValidRegion {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domainItem.Name,
+				Reason: "Invalid region: " + domainItem.Region,
 			})
 			continue
 		}
@@ -295,7 +311,7 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 		parsedURL, err := url.Parse(domainInput)
 		if err != nil {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainInput,
+				Name:   domainItem.Name,
 				Reason: "Invalid URL format",
 			})
 			continue
@@ -305,42 +321,30 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 		fullURL := domainInput
 		if parsedURL.Scheme == "" {
 			fullURL = "https://" + domainInput
-			// parsedURL, _ = url.Parse(fullURL)
 		}
 
-		// Check if domain already exists (case insensitive)
-		// We compare by hostname to avoid duplicates with different protocols
-		// hostname := parsedURL.Hostname()
-		// if existingDomains[strings.ToLower(hostname)] {
-		// 	response.Failed = append(response.Failed, model.DomainAddResult{
-		// 		Name:   domainInput,
-		// 		Reason: "Domain already exists",
-		// 	})
-		// 	continue
-		// }
-
-		// Insert the full URL in the database
+		// Insert the domain with the per-domain region
 		var domainID int
 		err = s.db.QueryRow(`
-        INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
-        VALUES ($1, $2, $3, '', true, $4, $4)
-        RETURNING id
-    `, userID, fullURL, interval, time.Now()).Scan(&domainID)
+            INSERT INTO domains (user_id, name, interval, monitor_guid, active, region, created_at, updated_at)
+            VALUES ($1, $2, $3, '', true, $4, $5, $5)
+            RETURNING id
+        `, userID, fullURL, interval, domainItem.Region, time.Now()).Scan(&domainID)
 
 		if err != nil {
 			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainInput,
+				Name:   domainItem.Name,
 				Reason: "Failed to insert domain: " + err.Error(),
 			})
 			continue
 		}
 
-		// Create monitor asynchronously with the full URL
-		go s.createMonitorAsync(domainID, fullURL, userRegion)
+		// Create monitor asynchronously using domain-specific region
+		go s.createMonitorAsync(domainID, fullURL, domainItem.Region)
 
 		// Mark domain as successfully added
 		response.Success = append(response.Success, model.DomainAddResult{
-			Name: fullURL, // Return the full URL with protocol
+			Name: domainItem.Name,
 			ID:   domainID,
 		})
 		response.Added++
@@ -353,7 +357,7 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 }
 
 // createMonitorAsync creates a monitor in Uptrends and updates the domain record
-func (s *DomainService) createMonitorAsync(domainID int, fullURL, userRegion string) {
+func (s *DomainService) createMonitorAsync(domainID int, fullURL, domainRegion string) {
 	// Add some delay to prevent overwhelming the Uptrends API
 	time.Sleep(100 * time.Millisecond)
 
@@ -366,8 +370,8 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, userRegion str
 
 	monitorName := fmt.Sprintf("Domain Check - %s", parsedURL)
 
-	// Create monitor in monitoring service
-	monitorGuid, err := s.monitorClient.CreateMonitor(fullURL, monitorName, userRegion)
+	// Create monitor in monitoring service using domain-specific region
+	monitorGuid, err := s.monitorClient.CreateMonitor(fullURL, monitorName, domainRegion)
 	if err != nil {
 		log.Printf("Failed to create monitor for domain %d (%s): %v", domainID, fullURL, err)
 		// We'll try again during the next system check, but for now just exit
@@ -398,13 +402,13 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, userRegion str
 func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error) {
 	var domains []model.Domain
 
-	// Update this query to handle NULL values in the active column
 	err := s.db.Select(&domains, `
         SELECT 
             d.id, 
             d.user_id, 
             d.name, 
-            COALESCE(d.active, false) AS active, -- Use COALESCE to handle NULL
+            COALESCE(d.active, false) AS active,
+            d.region,  
             d.last_status, 
             d.error_code, 
             d.error_description, 
@@ -496,19 +500,51 @@ func (s *DomainService) UpdateDomain(domainID, userID int, req model.DomainUpdat
 		paramIndex++
 	}
 
+	// Add region field if provided
+	if req.Region != nil && *req.Region != "" {
+		// Validate region
+		var isValidRegion bool
+		err := s.db.Get(&isValidRegion, "SELECT EXISTS(SELECT 1 FROM regions WHERE code = $1 AND is_active = TRUE)", *req.Region)
+		if err != nil {
+			return fmt.Errorf("error verifying region: %w", err)
+		}
+		if !isValidRegion {
+			return errors.New("invalid region")
+		}
+
+		query += fmt.Sprintf(", region = $%d", paramIndex)
+		params = append(params, *req.Region)
+		paramIndex++
+
+		// If region changed and monitor exists, we might need to recreate it
+		if domain.MonitorGuid != "" && domain.Region != *req.Region {
+			// Delete existing monitor
+			if err := s.monitorClient.DeleteMonitor(domain.MonitorGuid); err != nil {
+				log.Printf("Failed to delete monitor for region change: %v", err)
+				// Continue anyway, we'll create a new one
+			}
+
+			// Schedule creation of a new monitor
+			go s.createMonitorAsync(domainID, domain.Name, *req.Region)
+		}
+	}
+
 	// Add WHERE clause
 	query += fmt.Sprintf(" WHERE id = $%d AND user_id = $%d", paramIndex, paramIndex+1)
 	params = append(params, domainID, userID)
 
-	// Execute update
-	log.Printf("Executing query: %s with params: %v", query, params)
-	_, err = s.db.Exec(query, params...)
-	if err != nil {
-		return err
+	// Execute update if we have fields to update
+	if paramIndex > 1 {
+		// Execute update
+		log.Printf("Executing query: %s with params: %v", query, params)
+		_, err = s.db.Exec(query, params...)
+		if err != nil {
+			return err
+		}
 	}
 
-	// If monitor_guid exists, update monitor status in Uptrends
-	if domain.MonitorGuid != "" {
+	// If monitor_guid exists and active status changed, update monitor status
+	if domain.MonitorGuid != "" && req.Active != nil && req.Region == nil {
 		if err := s.monitorClient.UpdateMonitorStatus(domain.MonitorGuid, *req.Active); err != nil {
 			log.Printf("Failed to update monitor status: %v", err)
 			// Continue despite the error - we've updated the database already

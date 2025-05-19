@@ -11,6 +11,7 @@ type Domain struct {
 	Name             string    `json:"name" db:"name"`
 	Active           bool      `json:"active" db:"active"`
 	Interval         int       `json:"interval" db:"interval"` // Interval in minutes
+	Region           string    `json:"region" db:"region"`     // NEW: Region for this domain
 	MonitorGuid      string    `db:"monitor_guid" json:"monitor_guid"`
 	CreatedAt        time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
@@ -24,7 +25,8 @@ type Domain struct {
 // DomainAddRequest represents the request to add a new domain
 type DomainAddRequest struct {
 	Name     string `json:"name" binding:"required"`
-	Interval int    `json:"interval"` // If not provided, default will be used
+	Interval int    `json:"interval"`                  // If not provided, default will be used
+	Region   string `json:"region" binding:"required"` // NEW: Required region field
 }
 
 // DomainListResponse represents the response for domain listing
@@ -44,10 +46,16 @@ type DomainStatusResponse struct {
 	ResponseTime int       `json:"response_time"` // in milliseconds
 }
 
+// DomainBatchItem represents a single domain in a batch request
+type DomainBatchItem struct {
+	Name   string `json:"name" binding:"required"`
+	Region string `json:"region" binding:"required"`
+}
+
 // DomainBatchAddRequest represents a batch request to add multiple domains
 type DomainBatchAddRequest struct {
-	Domains  []string `json:"domains"`  // List of domain names to add
-	Interval int      `json:"interval"` // Optional, will use default if not provided
+	Domains  []DomainBatchItem `json:"domains"`  // List of domain items with per-domain regions
+	Interval int               `json:"interval"` // Optional, will use default if not provided
 }
 
 // DomainBatchAddResponse represents the response for a batch domain add operation
@@ -67,8 +75,9 @@ type DomainAddResult struct {
 
 // DomainUpdateRequest represents the request to update domain settings
 type DomainUpdateRequest struct {
-	Active   *bool `json:"active"`
-	Interval *int  `json:"interval"` // Interval in minutes
+	Active   *bool   `json:"active"`
+	Interval *int    `json:"interval"` // Interval in minutes
+	Region   *string `json:"region"`   // NEW: Optional region field for updates
 }
 
 // DomainWithRegion extends Domain with user region info

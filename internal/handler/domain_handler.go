@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -88,6 +89,12 @@ func (h *DomainHandler) AddDomain(c *gin.Context) {
 		return
 	}
 
+	// Validate region
+	if req.Region == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Region is required"})
+		return
+	}
+
 	// Log the request for debugging
 	log.Printf("AddDomain request: %+v for user: %d", req, userID)
 
@@ -110,6 +117,10 @@ func (h *DomainHandler) AddDomain(c *gin.Context) {
 		}
 		if err.Error() == "interval must be 10, 20, or 30 minutes" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be 10, 20, or 30 minutes"})
+			return
+		}
+		if err.Error() == "invalid region" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid region"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add domain: " + err.Error()})
@@ -153,21 +164,40 @@ func (h *DomainHandler) AddBatchDomains(c *gin.Context) {
 		return
 	}
 
-	// Remove duplicates from the request
+	// Remove duplicates from the request - now using DomainBatchItem
 	uniqueDomains := make(map[string]bool)
-	var filteredDomains []string
-	for _, domain := range req.Domains {
+	var filteredDomains []model.DomainBatchItem
+	for _, domainItem := range req.Domains {
 		// Normalize domain (convert to lowercase, trim spaces)
-		domain = strings.TrimSpace(domain)
-		if domain == "" {
+		domainName := strings.TrimSpace(domainItem.Name)
+		if domainName == "" {
 			continue
 		}
-		if !uniqueDomains[strings.ToLower(domain)] {
-			uniqueDomains[strings.ToLower(domain)] = true
-			filteredDomains = append(filteredDomains, domain)
+
+		// Extract hostname for duplicate checking
+		parsedURL, err := url.Parse(domainName)
+		var normalizedKey string
+
+		if err == nil && (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
+			// Use hostname as the key for URLs with protocol
+			normalizedKey = strings.ToLower(parsedURL.Hostname())
+		} else {
+			// Use the whole string as key for plain domains
+			normalizedKey = strings.ToLower(domainName)
+		}
+
+		if !uniqueDomains[normalizedKey] {
+			uniqueDomains[normalizedKey] = true
+			filteredDomains = append(filteredDomains, model.DomainBatchItem{
+				Name:   domainName,
+				Region: domainItem.Region,
+			})
 		}
 	}
 	req.Domains = filteredDomains
+
+	// Log the batch add request
+	log.Printf("Batch add request for user %d: %d domains", userID, len(req.Domains))
 
 	// Process batch domain addition
 	response := h.domainService.AddBatchDomains(userID, req)

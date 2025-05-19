@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// RegisterUser handles user registration with region validation
+// RegisterUser handles user registration
 func (s *AuthService) RegisterUser(req model.RegistrationRequest) (int64, error) {
 	// Check if username already exists
 	var count int
@@ -27,29 +27,19 @@ func (s *AuthService) RegisterUser(req model.RegistrationRequest) (int64, error)
 		return 0, errors.New("email already exists")
 	}
 
-	// Check if region is valid
-	var isValid bool
-	err = s.db.Get(&isValid, "SELECT EXISTS(SELECT 1 FROM regions WHERE code = $1 AND is_active = TRUE)", req.Region)
-	if err != nil {
-		return 0, err
-	}
-	if !isValid {
-		return 0, errors.New("invalid region")
-	}
-
 	// Hash password
 	hashedPassword, err := HashPassword(req.Password)
 	if err != nil {
 		return 0, err
 	}
 
-	// Insert new user
+	// Insert new user (without region)
 	var userID int64
 	err = s.db.QueryRow(
-		`INSERT INTO users (username, password_hash, email, region, two_factor_enabled, created_at, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $6) 
+		`INSERT INTO users (username, password_hash, email, two_factor_enabled, created_at, updated_at) 
+         VALUES ($1, $2, $3, $4, $5, $5) 
          RETURNING id`,
-		req.Username, hashedPassword, req.Email, req.Region, false, time.Now()).Scan(&userID)
+		req.Username, hashedPassword, req.Email, false, time.Now()).Scan(&userID)
 	if err != nil {
 		return 0, err
 	}
