@@ -106,8 +106,29 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 		return 0, errors.New("domain limit reached")
 	}
 
-	// Check if the domain already exists for this user
-	err = s.db.Get(&count, "SELECT COUNT(*) FROM domains WHERE user_id = $1 AND name = $2", userID, req.Name)
+	// Parse URL to ensure consistent storage
+	parsedURL, err := url.Parse(req.Name)
+	if err != nil {
+		return 0, fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	// Ensure there's a scheme, default to https if not specified
+	fullURL := req.Name
+	if parsedURL.Scheme == "" {
+		fullURL = "https://" + req.Name
+		parsedURL, _ = url.Parse(fullURL)
+	}
+
+	// Check if domain already exists by hostname (case insensitive)
+	hostname := parsedURL.Hostname()
+	err = s.db.Get(&count, `
+        SELECT COUNT(*) FROM domains 
+        WHERE user_id = $1 AND (
+            LOWER(name) = LOWER($2) OR 
+            POSITION(LOWER($3) IN LOWER(name)) > 0
+        )
+    `, userID, fullURL, hostname)
+
 	if err != nil {
 		return 0, err
 	}
@@ -137,14 +158,14 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
         INSERT INTO domains (user_id, name, interval, monitor_guid, active, created_at, updated_at)
         VALUES ($1, $2, $3, '', true, $4, $4)
         RETURNING id
-    `, userID, req.Name, interval, time.Now()).Scan(&domainID)
+    `, userID, fullURL, interval, time.Now()).Scan(&domainID)
 
 	if err != nil {
 		return 0, err
 	}
 
 	// Create the monitor asynchronously in the background
-	go s.createMonitorAsync(domainID, req.Name, userRegion)
+	go s.createMonitorAsync(domainID, fullURL, userRegion)
 
 	return domainID, nil
 }
