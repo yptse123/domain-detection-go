@@ -282,21 +282,6 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 
 		// Ensure there's a scheme, default to https if not specified
 		fullURL := domainInput
-		if parsedURL.Scheme == "" {
-			fullURL = "https://" + domainInput
-			parsedURL, _ = url.Parse(fullURL)
-		}
-
-		// Check if domain already exists (case insensitive)
-		// We compare by hostname to avoid duplicates with different protocols
-		hostname := parsedURL.Hostname()
-		if existingDomains[strings.ToLower(hostname)] {
-			response.Failed = append(response.Failed, model.DomainAddResult{
-				Name:   domainInput,
-				Reason: "Domain already exists",
-			})
-			continue
-		}
 
 		// Insert the full URL in the database
 		var domainID int
@@ -325,7 +310,7 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 		response.Added++
 
 		// Add to our existing domains map to prevent duplicates within the batch
-		existingDomains[strings.ToLower(hostname)] = true
+		existingDomains[strings.ToLower(fullURL)] = true
 	}
 
 	return response
