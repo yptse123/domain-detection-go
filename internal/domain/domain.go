@@ -554,24 +554,44 @@ func (s *DomainService) UpdateDomain(domainID, userID int, req model.DomainUpdat
 	return nil
 }
 
-// UpdateAllUserDomains updates settings for all domains of a user
+// UpdateAllUserDomains updates settings for domains of a user in a specific region
 func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateRequest) error {
-	// Get all user's domains with their monitor_guids and regions
+	// Get domain information for this user, filtered by region if provided
 	var domains []model.Domain
-	err := s.db.Select(&domains, "SELECT id, name, monitor_guid, region FROM domains WHERE user_id = $1", userID)
+	var params []interface{}
+	var query string
+
+	if req.Region != nil && *req.Region != "" {
+		// Only get domains from the specified region
+		query = "SELECT id, name, monitor_guid, region FROM domains WHERE user_id = $1 AND region = $2"
+		params = []interface{}{userID, *req.Region}
+	} else {
+		// Get all domains for the user (original behavior)
+		query = "SELECT id, name, monitor_guid, region FROM domains WHERE user_id = $1"
+		params = []interface{}{userID}
+	}
+
+	err := s.db.Select(&domains, query, params...)
 	if err != nil {
 		return err
 	}
 
+	if len(domains) == 0 {
+		if req.Region != nil && *req.Region != "" {
+			return fmt.Errorf("no domains found in region %s", *req.Region)
+		}
+		return nil // No domains to update, but not an error
+	}
+
 	// Build dynamic SQL update query based on which fields are provided
-	query := "UPDATE domains SET updated_at = NOW()"
-	params := []interface{}{}
+	updateQuery := "UPDATE domains SET updated_at = NOW()"
+	updateParams := []interface{}{}
 	paramIndex := 1
 
 	// Add active field if provided
 	if req.Active != nil {
-		query += fmt.Sprintf(", active = $%d", paramIndex)
-		params = append(params, *req.Active)
+		updateQuery += fmt.Sprintf(", active = $%d", paramIndex)
+		updateParams = append(updateParams, *req.Active)
 		paramIndex++
 	}
 
@@ -582,40 +602,26 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 			return errors.New("interval must be 10, 20, or 30 minutes")
 		}
 
-		query += fmt.Sprintf(", interval = $%d", paramIndex)
-		params = append(params, *req.Interval)
+		updateQuery += fmt.Sprintf(", interval = $%d", paramIndex)
+		updateParams = append(updateParams, *req.Interval)
 		paramIndex++
 	}
 
-	// Add region field if provided
-	var newRegion string
+	// Add WHERE clause with region filter if provided
 	if req.Region != nil && *req.Region != "" {
-		// Validate region
-		var isValidRegion bool
-		err := s.db.Get(&isValidRegion, "SELECT EXISTS(SELECT 1 FROM regions WHERE code = $1 AND is_active = TRUE)", *req.Region)
-		if err != nil {
-			return fmt.Errorf("error verifying region: %w", err)
-		}
-		if !isValidRegion {
-			return errors.New("invalid region")
-		}
-
-		query += fmt.Sprintf(", region = $%d", paramIndex)
-		params = append(params, *req.Region)
+		updateQuery += fmt.Sprintf(" WHERE user_id = $%d AND region = $%d", paramIndex, paramIndex+1)
+		updateParams = append(updateParams, userID, *req.Region)
+		paramIndex += 2
+	} else {
+		updateQuery += fmt.Sprintf(" WHERE user_id = $%d", paramIndex)
+		updateParams = append(updateParams, userID)
 		paramIndex++
-
-		// Store new region for monitor recreation
-		newRegion = *req.Region
 	}
-
-	// Add WHERE clause
-	query += fmt.Sprintf(" WHERE user_id = $%d", paramIndex)
-	params = append(params, userID)
 
 	// Execute the update if we have at least one field to update
 	if paramIndex > 1 {
-		log.Printf("Executing query: %s with params: %v", query, params)
-		_, err = s.db.Exec(query, params...)
+		log.Printf("Executing query: %s with params: %v", updateQuery, updateParams)
+		_, err = s.db.Exec(updateQuery, updateParams...)
 		if err != nil {
 			return err
 		}
@@ -629,23 +635,6 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 					log.Printf("Failed to update monitor status for domain %d: %v", domain.ID, err)
 					// Continue with other domains despite errors
 				}
-			}
-		}
-	}
-
-	// Handle region changes - we need to recreate monitors with the new region
-	if req.Region != nil && *req.Region != "" {
-		for _, domain := range domains {
-			// Only recreate if domain has a monitor and region is different
-			if domain.MonitorGuid != "" && domain.Region != newRegion {
-				// Delete old monitor
-				if err := s.monitorClient.DeleteMonitor(domain.MonitorGuid); err != nil {
-					log.Printf("Failed to delete monitor for region change on domain %d: %v", domain.ID, err)
-					// Continue anyway as we'll create a new one
-				}
-
-				// Create new monitor with new region asynchronously
-				go s.createMonitorAsync(domain.ID, domain.Name, newRegion)
 			}
 		}
 	}
