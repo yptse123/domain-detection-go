@@ -43,13 +43,18 @@ func CheckPassword(password, hash string) bool {
 }
 
 // GenerateJWT creates a new JWT token for authenticated users
-func (s *AuthService) GenerateJWT(userID int, username, region string) (string, error) {
+func (s *AuthService) GenerateJWT(userID int, username string, region sql.NullString) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
+
+	regionValue := ""
+	if region.Valid {
+		regionValue = region.String
+	}
 
 	claims := token.Claims.(jwt.MapClaims)
 	claims["user_id"] = userID
 	claims["username"] = username
-	claims["region"] = region
+	claims["region"] = regionValue
 	claims["exp"] = time.Now().Add(time.Hour * 24).Unix()
 
 	return token.SignedString(s.jwtSecret)

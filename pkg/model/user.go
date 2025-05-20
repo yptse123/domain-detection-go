@@ -6,16 +6,17 @@ import (
 )
 
 // User represents a merchant user in the system
+// User represents an application user
 type User struct {
 	ID               int            `json:"id" db:"id"`
 	Username         string         `json:"username" db:"username"`
-	Email            string         `json:"email" db:"email"`
 	PasswordHash     string         `json:"-" db:"password_hash"`
+	Email            string         `json:"email" db:"email"`
 	TwoFactorEnabled bool           `json:"two_factor_enabled" db:"two_factor_enabled"`
 	TwoFactorSecret  sql.NullString `json:"-" db:"two_factor_secret"`
-	Region           string         `json:"region" db:"region"`
 	CreatedAt        time.Time      `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at" db:"updated_at"`
+	Region           sql.NullString `json:"region" db:"region"` // Changed to sql.NullString
 }
 
 // UserCredentials is used for login requests
