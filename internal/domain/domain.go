@@ -556,9 +556,9 @@ func (s *DomainService) UpdateDomain(domainID, userID int, req model.DomainUpdat
 
 // UpdateAllUserDomains updates settings for all domains of a user
 func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateRequest) error {
-	// Get all user's domains with their monitor_guids
+	// Get all user's domains with their monitor_guids and regions
 	var domains []model.Domain
-	err := s.db.Select(&domains, "SELECT id, monitor_guid FROM domains WHERE user_id = $1", userID)
+	err := s.db.Select(&domains, "SELECT id, name, monitor_guid, region FROM domains WHERE user_id = $1", userID)
 	if err != nil {
 		return err
 	}
@@ -587,6 +587,27 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 		paramIndex++
 	}
 
+	// Add region field if provided
+	var newRegion string
+	if req.Region != nil && *req.Region != "" {
+		// Validate region
+		var isValidRegion bool
+		err := s.db.Get(&isValidRegion, "SELECT EXISTS(SELECT 1 FROM regions WHERE code = $1 AND is_active = TRUE)", *req.Region)
+		if err != nil {
+			return fmt.Errorf("error verifying region: %w", err)
+		}
+		if !isValidRegion {
+			return errors.New("invalid region")
+		}
+
+		query += fmt.Sprintf(", region = $%d", paramIndex)
+		params = append(params, *req.Region)
+		paramIndex++
+
+		// Store new region for monitor recreation
+		newRegion = *req.Region
+	}
+
 	// Add WHERE clause
 	query += fmt.Sprintf(" WHERE user_id = $%d", paramIndex)
 	params = append(params, userID)
@@ -608,6 +629,23 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 					log.Printf("Failed to update monitor status for domain %d: %v", domain.ID, err)
 					// Continue with other domains despite errors
 				}
+			}
+		}
+	}
+
+	// Handle region changes - we need to recreate monitors with the new region
+	if req.Region != nil && *req.Region != "" {
+		for _, domain := range domains {
+			// Only recreate if domain has a monitor and region is different
+			if domain.MonitorGuid != "" && domain.Region != newRegion {
+				// Delete old monitor
+				if err := s.monitorClient.DeleteMonitor(domain.MonitorGuid); err != nil {
+					log.Printf("Failed to delete monitor for region change on domain %d: %v", domain.ID, err)
+					// Continue anyway as we'll create a new one
+				}
+
+				// Create new monitor with new region asynchronously
+				go s.createMonitorAsync(domain.ID, domain.Name, newRegion)
 			}
 		}
 	}
