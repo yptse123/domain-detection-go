@@ -385,7 +385,7 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, domainRegion s
 
 	// Add Japan as fallback region if needed
 	if regionsNeedingFallback[domainRegion] {
-		regions = append(regions, "jp") // Add Japan
+		regions = append(regions, "JP") // Add Japan
 		log.Printf("Adding Japan fallback region for domain %d with primary region %s", domainID, domainRegion)
 	}
 
