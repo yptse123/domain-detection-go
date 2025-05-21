@@ -198,17 +198,20 @@ func (s *TelegramService) DeleteTelegramConfig(configID, userID int) error {
 
 // SendDomainStatusNotification sends a notification about domain status change
 func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, statusChanged bool) error {
-	// Get all active telegram configs for this domain's user
+	// Get all active telegram configs for this domain's user WITH all notification preferences
 	var configs []struct {
-		ID       int    `db:"id"`
-		ChatID   string `db:"chat_id"`
-		ChatName string `db:"chat_name"`
+		ID           int    `db:"id"`
+		ChatID       string `db:"chat_id"`
+		ChatName     string `db:"chat_name"`
+		IsActive     bool   `db:"is_active"`      // Overall active status
+		NotifyOnUp   bool   `db:"notify_on_up"`   // Whether to notify on "back up" events
+		NotifyOnDown bool   `db:"notify_on_down"` // Whether to notify on "down" events
 	}
 
 	err := s.db.Select(&configs, `
-        SELECT tc.id, tc.chat_id, tc.chat_name
+        SELECT tc.id, tc.chat_id, tc.chat_name, tc.is_active, tc.notify_on_up, tc.notify_on_down
         FROM telegram_configs tc
-        WHERE tc.user_id = $1 AND tc.is_active = true
+        WHERE tc.user_id = $1
     `, domain.UserID)
 
 	if err != nil {
@@ -217,8 +220,7 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	}
 
 	if len(configs) == 0 {
-		// No Telegram configurations for this user
-		log.Printf("No active Telegram configurations for user %d", domain.UserID)
+		log.Printf("No Telegram configurations for user %d", domain.UserID)
 		return nil
 	}
 
@@ -227,37 +229,17 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	defer s.notifyLock.Unlock()
 
 	// Calculate suppression duration based on domain's interval
-	// Use domain.Interval (in minutes) to determine how long to suppress duplicate notifications
 	suppressionDuration := time.Duration(domain.Interval) * time.Minute
 
 	// For UP/DOWN status changes, use a shorter suppression period (half of regular interval)
-	// to ensure important status changes are reported more promptly
 	if !domain.Available() || statusChanged {
 		suppressionDuration = suppressionDuration / 2
 	}
 
-	// Set a minimum suppression time to avoid flooding (e.g., 2 minutes)
+	// Set a minimum suppression time to avoid flooding
 	minSuppression := 2 * time.Minute
 	if suppressionDuration < minSuppression {
 		suppressionDuration = minSuppression
-	}
-
-	// Clean up old cache entries
-	now := time.Now()
-	for key, timestamp := range s.notifyCache {
-		// Use the domain's interval to determine if the cache entry should be removed
-		// We'll use a standard multiplier (2x the domain's interval) for cache cleanup
-		_, _, found := strings.Cut(key, ":")
-		if !found {
-			// Invalid key format, just remove it
-			delete(s.notifyCache, key)
-			continue
-		}
-
-		// If the cache entry is older than the suppression duration, remove it
-		if now.Sub(timestamp) > suppressionDuration {
-			delete(s.notifyCache, key)
-		}
 	}
 
 	// Determine notification type
@@ -270,6 +252,7 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 
 	// Check if we've recently sent the same notification
 	cacheKey := fmt.Sprintf("%d:%s", domain.ID, notificationType)
+	now := time.Now()
 	if lastSent, exists := s.notifyCache[cacheKey]; exists {
 		timeSinceLast := now.Sub(lastSent)
 		if timeSinceLast < suppressionDuration {
@@ -279,7 +262,6 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 		}
 	}
 
-	// Rest of the function remains the same...
 	// Create a location object for UTC+8
 	loc, err := time.LoadLocation(TIMEZONE_LOCATION)
 	if err != nil {
@@ -311,24 +293,27 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 			formattedTime)
 	}
 
-	// Send to all configured chats
+	// Send to all configured chats that match notification preferences
 	for _, config := range configs {
-		// Check notification history in database - also use domain's interval now
-		var lastNotification time.Time
-		err := s.db.Get(&lastNotification, `
-            SELECT MAX(notified_at) 
-            FROM notification_history
-            WHERE domain_id = $1 AND telegram_config_id = $2 AND notification_type = $3
-        `, domain.ID, config.ID, notificationType)
+		// Skip if telegram config is not active
+		if !config.IsActive {
+			log.Printf("Skipping notification for domain %s to chat %s: Telegram config is inactive",
+				domain.Name, config.ChatName)
+			continue
+		}
 
-		if err == nil && !lastNotification.IsZero() {
-			// Skip if we've notified this chat about this domain recently
-			// Using the same suppression duration based on domain interval
-			if now.Sub(lastNotification) < suppressionDuration {
-				log.Printf("Skipping notification to chat %s for domain %s: last sent at %s (suppression: %s)",
-					config.ChatName, domain.Name, lastNotification, suppressionDuration)
-				continue
-			}
+		// Skip "up" notifications if notify_on_up is disabled
+		if notificationType == "up" && !config.NotifyOnUp {
+			log.Printf("Skipping 'back up' notification for domain %s to chat %s: notify_on_up is disabled",
+				domain.Name, config.ChatName)
+			continue
+		}
+
+		// Skip "down" notifications if notify_on_down is disabled
+		if notificationType == "down" && !config.NotifyOnDown {
+			log.Printf("Skipping 'down' notification for domain %s to chat %s: notify_on_down is disabled",
+				domain.Name, config.ChatName)
+			continue
 		}
 
 		// Send message to this chat
