@@ -316,6 +316,23 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 			continue
 		}
 
+		// Check notification history in database - use domain's interval for suppression
+		var lastNotification time.Time
+		err := s.db.Get(&lastNotification, `
+        SELECT MAX(notified_at) 
+        FROM notification_history
+        WHERE domain_id = $1 AND telegram_config_id = $2 AND notification_type = $3
+    `, domain.ID, config.ID, notificationType)
+
+		if err == nil && !lastNotification.IsZero() {
+			// Skip if we've notified this chat about this domain recently
+			if now.Sub(lastNotification) < suppressionDuration {
+				log.Printf("Skipping notification to chat %s for domain %s: last sent at %s (suppression: %s)",
+					config.ChatName, domain.Name, lastNotification, suppressionDuration)
+				continue
+			}
+		}
+
 		// Send message to this chat
 		if err := s.sendTelegramMessage(config.ChatID, message); err != nil {
 			log.Printf("Failed to send Telegram notification to chat %s: %v", config.ChatName, err)
