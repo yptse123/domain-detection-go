@@ -51,14 +51,15 @@ func (h *TelegramHandler) AddTelegramConfig(c *gin.Context) {
 		return
 	}
 
-	// Call service method with updated parameters (no domains)
+	// Call service method with updated parameters
 	configID, err := h.telegramService.AddTelegramConfig(
 		userID,
 		req.ChatID,
 		req.ChatName,
 		req.NotifyOnDown,
 		req.NotifyOnUp,
-		req.IsActive, // This should match the field name from your TelegramConfigRequest struct
+		req.IsActive,
+		req.MonitorRegions,
 	)
 
 	if err != nil {
@@ -112,7 +113,7 @@ func (h *TelegramHandler) UpdateTelegramConfig(c *gin.Context) {
 		return
 	}
 
-	// Call service method with updated parameters (no domains)
+	// Call service method with updated parameters
 	err = h.telegramService.UpdateTelegramConfig(
 		configID,
 		userID,
@@ -121,6 +122,7 @@ func (h *TelegramHandler) UpdateTelegramConfig(c *gin.Context) {
 		req.NotifyOnDown,
 		req.NotifyOnUp,
 		req.IsActive,
+		req.MonitorRegions,
 	)
 
 	if err != nil {

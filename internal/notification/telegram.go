@@ -117,11 +117,25 @@ func (s *TelegramService) AddTelegramConfig(
 	notifyOnDown,
 	notifyOnUp bool,
 	isActive bool,
+	monitorRegions []string,
 ) (int, error) {
 	var configID int
 
-	// Insert the base config - removed domain associations
-	err := s.db.QueryRow(`
+	// Start a transaction
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return 0, fmt.Errorf("failed to start transaction: %w", err)
+	}
+
+	// Rollback transaction if any error occurs
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Insert the base config
+	err = tx.QueryRow(`
         INSERT INTO telegram_configs
         (user_id, chat_id, chat_name, notify_on_down, notify_on_up, is_active, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
@@ -132,6 +146,40 @@ func (s *TelegramService) AddTelegramConfig(
 		return 0, fmt.Errorf("failed to add Telegram configuration: %w", err)
 	}
 
+	// Add regions if specified
+	if len(monitorRegions) > 0 {
+		stmt, err := tx.Prepare(`
+            INSERT INTO telegram_config_regions (telegram_config_id, region_code)
+            VALUES ($1, $2)
+        `)
+		if err != nil {
+			return 0, fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, region := range monitorRegions {
+			// Verify region exists
+			var exists bool
+			err = tx.Get(&exists, "SELECT EXISTS(SELECT 1 FROM regions WHERE code = $1)", region)
+			if err != nil {
+				return 0, fmt.Errorf("failed to verify region %s: %w", region, err)
+			}
+			if !exists {
+				return 0, fmt.Errorf("region code not found: %s", region)
+			}
+
+			_, err = stmt.Exec(configID, region)
+			if err != nil {
+				return 0, fmt.Errorf("failed to add region %s: %w", region, err)
+			}
+		}
+	}
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return configID, nil
 }
 
@@ -139,6 +187,7 @@ func (s *TelegramService) AddTelegramConfig(
 func (s *TelegramService) GetTelegramConfigsForUser(userID int) ([]model.TelegramConfig, error) {
 	var configs []model.TelegramConfig
 
+	// Query base configurations
 	err := s.db.Select(&configs, `
         SELECT id, user_id, chat_id, chat_name, is_active, notify_on_down, notify_on_up, created_at, updated_at
         FROM telegram_configs
@@ -148,6 +197,22 @@ func (s *TelegramService) GetTelegramConfigsForUser(userID int) ([]model.Telegra
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Telegram configurations: %w", err)
+	}
+
+	// Get regions for each config
+	for i := range configs {
+		var regions []string
+		err := s.db.Select(&regions, `
+            SELECT region_code
+            FROM telegram_config_regions
+            WHERE telegram_config_id = $1
+        `, configs[i].ID)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to get regions for config %d: %w", configs[i].ID, err)
+		}
+
+		configs[i].MonitorRegions = regions
 	}
 
 	return configs, nil
@@ -162,9 +227,23 @@ func (s *TelegramService) UpdateTelegramConfig(
 	notifyOnDown,
 	notifyOnUp bool,
 	isActive bool,
+	monitorRegions []string,
 ) error {
-	// Update the config with all fields - removed domain associations
-	_, err := s.db.Exec(`
+	// Start a transaction
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+
+	// Rollback transaction if any error occurs
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Update the config
+	_, err = tx.Exec(`
         UPDATE telegram_configs
         SET chat_id = $1,
             chat_name = $2,
@@ -177,6 +256,46 @@ func (s *TelegramService) UpdateTelegramConfig(
 
 	if err != nil {
 		return fmt.Errorf("failed to update Telegram configuration: %w", err)
+	}
+
+	// Delete existing regions
+	_, err = tx.Exec(`DELETE FROM telegram_config_regions WHERE telegram_config_id = $1`, configID)
+	if err != nil {
+		return fmt.Errorf("failed to clear existing regions: %w", err)
+	}
+
+	// Add new regions if specified
+	if len(monitorRegions) > 0 {
+		stmt, err := tx.Prepare(`
+            INSERT INTO telegram_config_regions (telegram_config_id, region_code)
+            VALUES ($1, $2)
+        `)
+		if err != nil {
+			return fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, region := range monitorRegions {
+			// Verify region exists
+			var exists bool
+			err = tx.Get(&exists, "SELECT EXISTS(SELECT 1 FROM regions WHERE code = $1)", region)
+			if err != nil {
+				return fmt.Errorf("failed to verify region %s: %w", region, err)
+			}
+			if !exists {
+				return fmt.Errorf("region code not found: %s", region)
+			}
+
+			_, err = stmt.Exec(configID, region)
+			if err != nil {
+				return fmt.Errorf("failed to add region %s: %w", region, err)
+			}
+		}
+	}
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil
@@ -200,14 +319,16 @@ func (s *TelegramService) DeleteTelegramConfig(configID, userID int) error {
 func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, statusChanged bool) error {
 	// Get all active telegram configs for this domain's user
 	var configs []struct {
-		ID           int    `db:"id"`
-		ChatID       string `db:"chat_id"`
-		ChatName     string `db:"chat_name"`
-		IsActive     bool   `db:"is_active"`
-		NotifyOnUp   bool   `db:"notify_on_up"`
-		NotifyOnDown bool   `db:"notify_on_down"`
+		ID             int      `db:"id"`
+		ChatID         string   `db:"chat_id"`
+		ChatName       string   `db:"chat_name"`
+		IsActive       bool     `db:"is_active"`
+		NotifyOnUp     bool     `db:"notify_on_up"`
+		NotifyOnDown   bool     `db:"notify_on_down"`
+		MonitorRegions []string `db:"monitor_regions"`
 	}
 
+	// First get basic config info
 	err := s.db.Select(&configs, `
         SELECT tc.id, tc.chat_id, tc.chat_name, tc.is_active, tc.notify_on_up, tc.notify_on_down
         FROM telegram_configs tc
@@ -217,6 +338,23 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	if err != nil {
 		log.Printf("Failed to get Telegram configurations for user %d: %v", domain.UserID, err)
 		return fmt.Errorf("failed to get Telegram configurations for user: %w", err)
+	}
+
+	// Then get the regions for each config
+	for i := range configs {
+		var regions []string
+		err := s.db.Select(&regions, `
+            SELECT region_code
+            FROM telegram_config_regions
+            WHERE telegram_config_id = $1
+        `, configs[i].ID)
+
+		if err != nil {
+			log.Printf("Failed to get regions for config %d: %v", configs[i].ID, err)
+			continue
+		}
+
+		configs[i].MonitorRegions = regions
 	}
 
 	if len(configs) == 0 {
@@ -289,6 +427,23 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 			log.Printf("Skipping notification for domain %s to chat %s: Telegram config is inactive",
 				domain.Name, config.ChatName)
 			continue
+		}
+
+		// Skip if region doesn't match (if regions are specified)
+		if len(config.MonitorRegions) > 0 {
+			regionMatches := false
+			for _, region := range config.MonitorRegions {
+				if region == domain.Region {
+					regionMatches = true
+					break
+				}
+			}
+
+			if !regionMatches {
+				log.Printf("Skipping notification for domain %s to chat %s: Domain region %s not in monitor regions %v",
+					domain.Name, config.ChatName, domain.Region, config.MonitorRegions)
+				continue
+			}
 		}
 
 		// Skip "up" notifications if notify_on_up is disabled
