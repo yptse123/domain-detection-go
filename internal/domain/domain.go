@@ -377,10 +377,10 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, domainRegion s
 
 	// Define regions that need fallback because they have fewer than 3 checkpoints
 	regionsNeedingFallback := map[string]bool{
-		"th": true, // Thailand
-		"id": true, // Indonesia
-		"vn": true, // Vietnam
-		"kr": true, // Korea
+		"TH": true, // Thailand
+		"ID": true, // Indonesia
+		"VN": true, // Vietnam
+		"KR": true, // Korea
 	}
 
 	// Add Japan as fallback region if needed
