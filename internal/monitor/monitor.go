@@ -52,7 +52,7 @@ func (s *MonitorService) checkAllActiveDomains() {
 		return
 	}
 
-	// now := time.Now()
+	now := time.Now()
 
 	for _, domain := range domains {
 		// Skip domains without monitor GUID
@@ -61,9 +61,9 @@ func (s *MonitorService) checkAllActiveDomains() {
 		}
 
 		// Check if this domain is due for checking based on its interval
-		// if !isDomainDueForCheck(domain, now) {
-		// 	continue
-		// }
+		if !isDomainDueForCheck(domain, now) {
+			continue
+		}
 
 		log.Printf("Checking domain %s (interval: %d minutes)", domain.Name, domain.Interval)
 
@@ -306,4 +306,18 @@ func (s *MonitorService) checkDomainDirect(fullURL string) (*model.DomainCheckRe
 // Close cleans up resources
 func (s *MonitorService) Close() {
 	s.uptrendsClient.Close()
+}
+
+// isDomainDueForCheck determines if a domain is due for a check based on its interval
+func isDomainDueForCheck(domain model.Domain, now time.Time) bool {
+	// If domain has never been checked, it's due for a check
+	if domain.LastCheck.IsZero() {
+		return true
+	}
+
+	// Calculate next check time based on interval (in minutes)
+	nextCheckTime := domain.LastCheck.Add(time.Duration(domain.Interval) * time.Minute)
+
+	// If the next check time has passed, the domain is due for a check
+	return now.After(nextCheckTime) || now.Equal(nextCheckTime)
 }
