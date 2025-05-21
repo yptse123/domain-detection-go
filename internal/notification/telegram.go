@@ -198,14 +198,14 @@ func (s *TelegramService) DeleteTelegramConfig(configID, userID int) error {
 
 // SendDomainStatusNotification sends a notification about domain status change
 func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, statusChanged bool) error {
-	// Get all active telegram configs for this domain's user WITH all notification preferences
+	// Get all active telegram configs for this domain's user
 	var configs []struct {
 		ID           int    `db:"id"`
 		ChatID       string `db:"chat_id"`
 		ChatName     string `db:"chat_name"`
-		IsActive     bool   `db:"is_active"`      // Overall active status
-		NotifyOnUp   bool   `db:"notify_on_up"`   // Whether to notify on "back up" events
-		NotifyOnDown bool   `db:"notify_on_down"` // Whether to notify on "down" events
+		IsActive     bool   `db:"is_active"`
+		NotifyOnUp   bool   `db:"notify_on_up"`
+		NotifyOnDown bool   `db:"notify_on_down"`
 	}
 
 	err := s.db.Select(&configs, `
@@ -222,6 +222,14 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	if len(configs) == 0 {
 		log.Printf("No Telegram configurations for user %d", domain.UserID)
 		return nil
+	}
+
+	// Determine notification type
+	notificationType := "status"
+	if !domain.Available() {
+		notificationType = "down"
+	} else if statusChanged {
+		notificationType = "up"
 	}
 
 	// Check if we should send notification based on history and rate limiting
@@ -242,14 +250,6 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 		suppressionDuration = minSuppression
 	}
 
-	// Determine notification type
-	notificationType := "status"
-	if !domain.Available() {
-		notificationType = "down"
-	} else if statusChanged {
-		notificationType = "up"
-	}
-
 	// Check if we've recently sent the same notification
 	cacheKey := fmt.Sprintf("%d:%s", domain.ID, notificationType)
 	now := time.Now()
@@ -262,7 +262,7 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 		}
 	}
 
-	// Create a location object for UTC+8
+	// Create a location object for UTC+8 (Asia/Hong_Kong)
 	loc, err := time.LoadLocation(TIMEZONE_LOCATION)
 	if err != nil {
 		// Fallback to UTC+8 fixed offset if location name isn't available
@@ -275,22 +275,11 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	// Format message based on domain status
 	var message string
 	if !domain.Available() {
-		message = fmt.Sprintf("🔴 Domain %s is DOWN\n\nStatus: %d\nError: %s\nResponse Time: %dms\nLast Check: %s (UTC+8)",
-			domain.Name, domain.LastStatus, domain.ErrorDescription, domain.TotalTime,
-			formattedTime)
+		message = formatDownMessage(domain, formattedTime)
 	} else if statusChanged {
-		message = fmt.Sprintf("🟢 Domain %s is back UP\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s (UTC+8)",
-			domain.Name, domain.LastStatus, domain.TotalTime,
-			formattedTime)
+		message = formatUpMessage(domain, formattedTime)
 	} else {
-		// Regular status update
-		statusEmoji := "🟢"
-		if domain.TotalTime > 2000 {
-			statusEmoji = "🟠" // Slow response
-		}
-		message = fmt.Sprintf("%s Domain %s status update\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s (UTC+8)",
-			statusEmoji, domain.Name, domain.LastStatus, domain.TotalTime,
-			formattedTime)
+		message = formatStatusUpdateMessage(domain, formattedTime)
 	}
 
 	// Send to all configured chats that match notification preferences
@@ -316,13 +305,13 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 			continue
 		}
 
-		// Check notification history in database - use domain's interval for suppression
+		// Check notification history in database
 		var lastNotification time.Time
 		err := s.db.Get(&lastNotification, `
-        SELECT MAX(notified_at) 
-        FROM notification_history
-        WHERE domain_id = $1 AND telegram_config_id = $2 AND notification_type = $3
-    `, domain.ID, config.ID, notificationType)
+            SELECT MAX(notified_at) 
+            FROM notification_history
+            WHERE domain_id = $1 AND telegram_config_id = $2 AND notification_type = $3
+        `, domain.ID, config.ID, notificationType)
 
 		if err == nil && !lastNotification.IsZero() {
 			// Skip if we've notified this chat about this domain recently
@@ -355,6 +344,29 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	}
 
 	return nil
+}
+
+// Helper functions to format messages
+func formatDownMessage(domain model.Domain, formattedTime string) string {
+	return fmt.Sprintf("🔴 Domain %s is DOWN\n\nStatus: %d\nError: %s\nResponse Time: %dms\nLast Check: %s (UTC+8)",
+		domain.Name, domain.LastStatus, domain.ErrorDescription, domain.TotalTime,
+		formattedTime)
+}
+
+func formatUpMessage(domain model.Domain, formattedTime string) string {
+	return fmt.Sprintf("🟢 Domain %s is back UP\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s (UTC+8)",
+		domain.Name, domain.LastStatus, domain.TotalTime,
+		formattedTime)
+}
+
+func formatStatusUpdateMessage(domain model.Domain, formattedTime string) string {
+	statusEmoji := "🟢"
+	if domain.TotalTime > 2000 {
+		statusEmoji = "🟠" // Slow response
+	}
+	return fmt.Sprintf("%s Domain %s status update\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s (UTC+8)",
+		statusEmoji, domain.Name, domain.LastStatus, domain.TotalTime,
+		formattedTime)
 }
 
 // sendTelegramMessage sends a text message to a specific Telegram chat
