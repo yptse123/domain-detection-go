@@ -50,7 +50,7 @@ func NewTelegramService(config TelegramConfig, db *sqlx.DB) *TelegramService {
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 		rateLimiter: time.Tick(500 * time.Millisecond), // Max 2 API calls per second
 		notifyCache: make(map[string]time.Time),
-		cacheTTL:    1 * time.Hour, // Default: suppress same notifications for 1 hour
+		// cacheTTL:    1 * time.Hour, // Default: suppress same notifications for 1 hour
 	}
 }
 
@@ -226,10 +226,36 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	s.notifyLock.Lock()
 	defer s.notifyLock.Unlock()
 
+	// Calculate suppression duration based on domain's interval
+	// Use domain.Interval (in minutes) to determine how long to suppress duplicate notifications
+	suppressionDuration := time.Duration(domain.Interval) * time.Minute
+
+	// For UP/DOWN status changes, use a shorter suppression period (half of regular interval)
+	// to ensure important status changes are reported more promptly
+	if !domain.Available() || statusChanged {
+		suppressionDuration = suppressionDuration / 2
+	}
+
+	// Set a minimum suppression time to avoid flooding (e.g., 2 minutes)
+	minSuppression := 2 * time.Minute
+	if suppressionDuration < minSuppression {
+		suppressionDuration = minSuppression
+	}
+
 	// Clean up old cache entries
 	now := time.Now()
 	for key, timestamp := range s.notifyCache {
-		if now.Sub(timestamp) > s.cacheTTL {
+		// Use the domain's interval to determine if the cache entry should be removed
+		// We'll use a standard multiplier (2x the domain's interval) for cache cleanup
+		_, _, found := strings.Cut(key, ":")
+		if !found {
+			// Invalid key format, just remove it
+			delete(s.notifyCache, key)
+			continue
+		}
+
+		// If the cache entry is older than the suppression duration, remove it
+		if now.Sub(timestamp) > suppressionDuration {
 			delete(s.notifyCache, key)
 		}
 	}
@@ -246,13 +272,14 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	cacheKey := fmt.Sprintf("%d:%s", domain.ID, notificationType)
 	if lastSent, exists := s.notifyCache[cacheKey]; exists {
 		timeSinceLast := now.Sub(lastSent)
-		if timeSinceLast < s.cacheTTL {
-			log.Printf("Skipping notification for domain %s (%s): last sent %s ago",
-				domain.Name, notificationType, timeSinceLast)
+		if timeSinceLast < suppressionDuration {
+			log.Printf("Skipping notification for domain %s (%s): last sent %s ago, suppression duration: %s",
+				domain.Name, notificationType, timeSinceLast, suppressionDuration)
 			return nil
 		}
 	}
 
+	// Rest of the function remains the same...
 	// Create a location object for UTC+8
 	loc, err := time.LoadLocation(TIMEZONE_LOCATION)
 	if err != nil {
@@ -286,7 +313,7 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 
 	// Send to all configured chats
 	for _, config := range configs {
-		// Check notification history in database
+		// Check notification history in database - also use domain's interval now
 		var lastNotification time.Time
 		err := s.db.Get(&lastNotification, `
             SELECT MAX(notified_at) 
@@ -296,9 +323,10 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 
 		if err == nil && !lastNotification.IsZero() {
 			// Skip if we've notified this chat about this domain recently
-			if now.Sub(lastNotification) < s.cacheTTL {
-				log.Printf("Skipping notification to chat %s for domain %s: last sent at %s",
-					config.ChatName, domain.Name, lastNotification)
+			// Using the same suppression duration based on domain interval
+			if now.Sub(lastNotification) < suppressionDuration {
+				log.Printf("Skipping notification to chat %s for domain %s: last sent at %s (suppression: %s)",
+					config.ChatName, domain.Name, lastNotification, suppressionDuration)
 				continue
 			}
 		}
@@ -320,7 +348,7 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 			log.Printf("Failed to record notification history: %v", err)
 		}
 
-		// Update cache
+		// Update cache with current timestamp
 		s.notifyCache[cacheKey] = now
 	}
 
