@@ -368,10 +368,29 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, domainRegion s
 		return
 	}
 
-	monitorName := fmt.Sprintf("Domain Check - %s", parsedURL)
+	// Use hostname as display name, not the full URL with scheme
+	displayName := parsedURL.Hostname()
+	monitorName := fmt.Sprintf("Domain Check - %s", displayName)
 
-	// Create monitor in monitoring service using domain-specific region
-	monitorGuid, err := s.monitorClient.CreateMonitor(fullURL, monitorName, domainRegion)
+	// Create array of regions to use (primary + fallbacks)
+	regions := []string{domainRegion}
+
+	// Define regions that need fallback because they have fewer than 3 checkpoints
+	regionsNeedingFallback := map[string]bool{
+		"th": true, // Thailand
+		"id": true, // Indonesia
+		"vn": true, // Vietnam
+		"kr": true, // Korea
+	}
+
+	// Add Japan as fallback region if needed
+	if regionsNeedingFallback[domainRegion] {
+		regions = append(regions, "jp") // Add Japan
+		log.Printf("Adding Japan fallback region for domain %d with primary region %s", domainID, domainRegion)
+	}
+
+	// Create monitor in monitoring service using primary and fallback regions
+	monitorGuid, err := s.monitorClient.CreateMonitor(fullURL, monitorName, regions)
 	if err != nil {
 		log.Printf("Failed to create monitor for domain %d (%s): %v", domainID, fullURL, err)
 		// We'll try again during the next system check, but for now just exit
