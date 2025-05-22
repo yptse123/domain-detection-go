@@ -126,21 +126,19 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 	fullURL := req.Name
 	if parsedURL.Scheme == "" {
 		fullURL = "https://" + req.Name
-		parsedURL, _ = url.Parse(fullURL)
 	}
 
-	// Check if domain already exists by hostname (case insensitive)
-	hostname := parsedURL.Hostname()
 	err = s.db.Get(&count, `
-        SELECT COUNT(*) FROM domains 
-        WHERE user_id = $1 AND (
-            LOWER(name) = LOWER($2) OR 
-            POSITION(LOWER($3) IN LOWER(name)) > 0
-        )
-    `, userID, fullURL, hostname)
+    SELECT COUNT(*) FROM domains 
+    WHERE user_id = $1 AND LOWER(name) = LOWER($2)
+`, userID, fullURL)
 
 	if err != nil {
 		return 0, err
+	}
+
+	if count > 0 {
+		return 0, errors.New("domain already exists")
 	}
 
 	if count > 0 {
