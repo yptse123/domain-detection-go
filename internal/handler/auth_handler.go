@@ -46,10 +46,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
 		"user": gin.H{
-			"id":       user.ID,
-			"username": user.Username,
-			"email":    user.Email,
-			"region":   user.Region,
+			"id":          user.ID,
+			"username":    user.Username,
+			"email":       user.Email,
+			"region":      user.Region,
+			"require_2fa": user.TwoFactorEnabled,
 		},
 	})
 }
