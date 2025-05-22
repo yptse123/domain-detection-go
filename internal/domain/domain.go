@@ -465,7 +465,7 @@ func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error)
 func (s *DomainService) GetDomain(domainID, userID int) (*model.Domain, error) {
 	var domain model.Domain
 	err := s.db.Get(&domain, `
-        SELECT id, user_id, name, active, interval, last_status, error_code,
+        SELECT id, user_id, name, active, interval, region, last_status, error_code,
                total_time, error_description, monitor_guid, last_check, 
                created_at, updated_at
         FROM domains
