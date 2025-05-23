@@ -736,7 +736,7 @@ func (s *DomainService) GetAllActiveDomainsWithMonitors() ([]model.Domain, error
 	query := `
         SELECT id, user_id, name, active, interval, monitor_guid, last_status,
                error_code, total_time, error_description, last_check, 
-               created_at, updated_at
+               created_at, updated_at, region
         FROM domains 
         WHERE active = true
         AND monitor_guid IS NOT NULL 
