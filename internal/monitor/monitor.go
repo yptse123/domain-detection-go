@@ -75,7 +75,7 @@ func (s *MonitorService) checkAllActiveDomains() {
 			}()
 
 			// 1. Check with Uptrends API
-			uptrendsResult, uptrendsErr := s.uptrendsClient.GetLatestMonitorCheck(d.MonitorGuid)
+			uptrendsResult, uptrendsErr := s.uptrendsClient.GetLatestMonitorCheck(d.MonitorGuid, d.Region)
 			if uptrendsErr != nil {
 				log.Printf("Error checking domain %s with Uptrends: %v", d.Name, uptrendsErr)
 				// Continue to direct check

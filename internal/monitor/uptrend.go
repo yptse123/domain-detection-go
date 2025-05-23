@@ -351,22 +351,96 @@ func (c *UptrendsClient) DeleteMonitor(monitorGuid string) error {
 	return nil
 }
 
-// GetLatestMonitorCheck gets the latest check result for a monitor
-func (c *UptrendsClient) GetLatestMonitorCheck(monitorGuid string) (*model.DomainCheckResult, error) {
+// getCheckpointIdsForRegion gets all checkpoint IDs for a specific region
+func (c *UptrendsClient) getCheckpointIdsForRegion(regionCode string) ([]int, error) {
 	// Wait for rate limiter
 	<-c.rateLimiter.C
+
+	// Get the Uptrends region ID
+	regionID := getUptrendsRegionID(regionCode)
+
+	// Build request URL
+	requestUrl := fmt.Sprintf("%s/CheckpointRegion/%d/Checkpoint", c.config.BaseURL, regionID)
+
+	// Log the request for debugging
+	log.Printf("Getting checkpoints for region %s (ID: %d): %s", regionCode, regionID, requestUrl)
+
+	// Create request
+	req, err := http.NewRequest("GET", requestUrl, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	// Add authentication
+	req.SetBasicAuth(c.config.APIUsername, c.config.APIKey)
+	req.Header.Set("Accept", "application/json")
+
+	// Execute request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned non-success status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response - the response is an array of checkpoint objects
+	var checkpoints []struct {
+		CheckpointId        int      `json:"CheckpointId"`
+		CheckpointName      string   `json:"CheckpointName"`
+		Code                string   `json:"Code"`
+		Ipv4Addresses       []string `json:"Ipv4Addresses"`
+		Ipv6Addresses       []string `json:"Ipv6Addresses"`
+		IsPrimaryCheckpoint bool     `json:"IsPrimaryCheckpoint"`
+		SupportsIpv6        bool     `json:"SupportsIpv6"`
+		HasHighAvailability bool     `json:"HasHighAvailability"`
+	}
+
+	if err := json.Unmarshal(body, &checkpoints); err != nil {
+		return nil, fmt.Errorf("error parsing response: %w", err)
+	}
+
+	// Extract checkpoint IDs
+	var checkpointIds []int
+	for _, cp := range checkpoints {
+		checkpointIds = append(checkpointIds, cp.CheckpointId)
+		log.Printf("Found checkpoint %s (ID: %d) for region %s", cp.CheckpointName, cp.CheckpointId, regionCode)
+	}
+
+	return checkpointIds, nil
+}
+
+// GetLatestMonitorCheck gets the latest check result for a monitor
+func (c *UptrendsClient) GetLatestMonitorCheck(monitorGuid, regionCode string) (*model.DomainCheckResult, error) {
+	// Wait for rate limiter
+	<-c.rateLimiter.C
+
+	// Get checkpoint IDs for the specified region
+	checkpointIds, err := c.getCheckpointIdsForRegion(regionCode)
+	if err != nil {
+		log.Printf("Error getting checkpoint IDs for region %s: %v", regionCode, err)
+		// Continue with the check, but we won't be able to filter by region
+	}
 
 	// Build request URL with query parameters
 	baseUrl := fmt.Sprintf("%s/MonitorCheck/Monitor/%s", c.config.BaseURL, monitorGuid)
 	query := url.Values{}
-	query.Add("Sorting", "Descending") // Get the most recent check
-	query.Add("Take", "1")             // Only get the latest check
+	query.Add("Sorting", "Descending") // Get the most recent checks
+	query.Add("Take", "10")            // Now get 10 latest results instead of 1
 	query.Add("PresetPeriod", "Last2Hours")
 
 	requestUrl := fmt.Sprintf("%s?%s", baseUrl, query.Encode())
 
 	// Log the request for debugging
-	log.Printf("Getting latest check for monitor %s: %s", monitorGuid, requestUrl)
+	log.Printf("Getting latest 10 checks for monitor %s in region %s: %s", monitorGuid, regionCode, requestUrl)
 
 	req, err := http.NewRequest("GET", requestUrl, nil)
 	if err != nil {
@@ -390,38 +464,13 @@ func (c *UptrendsClient) GetLatestMonitorCheck(monitorGuid string) (*model.Domai
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}
 
-	// Log response for debugging
-	log.Printf("Uptrends API check response: %s", string(body))
-
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API returned non-success status: %d", resp.StatusCode)
 	}
 
 	// Parse response with correct types for numeric fields
 	var checkResponse struct {
-		Data []struct {
-			Type       string `json:"Type"`
-			Id         int64  `json:"Id"`
-			Attributes struct {
-				MonitorGuid       string  `json:"MonitorGuid"`
-				Timestamp         string  `json:"Timestamp"`
-				ErrorCode         int     `json:"ErrorCode"`
-				TotalTime         float64 `json:"TotalTime"`      // Changed to float64
-				ResolveTime       float64 `json:"ResolveTime"`    // Changed to float64
-				ConnectionTime    float64 `json:"ConnectionTime"` // Changed to float64
-				DownloadTime      float64 `json:"DownloadTime"`   // Changed to float64
-				TotalBytes        int     `json:"TotalBytes"`
-				ResolvedIpAddress string  `json:"ResolvedIpAddress"`
-				ErrorLevel        string  `json:"ErrorLevel"`
-				ErrorDescription  string  `json:"ErrorDescription"`
-				ErrorMessage      string  `json:"ErrorMessage"`
-				StagingMode       bool    `json:"StagingMode"`
-				ServerId          int     `json:"ServerId"`
-				HttpStatusCode    int     `json:"HttpStatusCode"`
-				IsPartialCheck    bool    `json:"IsPartialCheck"`
-				IsConcurrentCheck bool    `json:"IsConcurrentCheck"`
-			} `json:"Attributes"`
-		} `json:"Data"`
+		Data model.UpTrendCheckResult `json:"Data"`
 	}
 
 	if err := json.Unmarshal(body, &checkResponse); err != nil {
@@ -434,8 +483,48 @@ func (c *UptrendsClient) GetLatestMonitorCheck(monitorGuid string) (*model.Domai
 		return nil, fmt.Errorf("no check results found for monitor %s", monitorGuid)
 	}
 
-	// Get the first (latest) result
-	check := checkResponse.Data[0].Attributes
+	// Filter results by checkpoint ID
+	filteredChecks := model.UpTrendCheckResult{}
+
+	if len(checkpointIds) > 0 {
+		// Create a map for faster lookups
+		checkpointIdMap := make(map[int]bool)
+		for _, id := range checkpointIds {
+			checkpointIdMap[id] = true
+		}
+
+		for _, check := range checkResponse.Data {
+			serverId := check.Attributes.ServerId
+
+			// Extract the checkpoint ID by removing the last digit
+			// For example, ServerId 1970 → CheckpointId 197
+			checkpointId := serverId / 10
+
+			// Check if this is from our target region
+			if checkpointIdMap[int(checkpointId)] {
+				log.Printf("Including check from ServerId %d (CheckpointId %d) for monitor %s",
+					serverId, checkpointId, monitorGuid)
+				filteredChecks = append(filteredChecks, check)
+			} else {
+				log.Printf("Filtering out check from ServerId %d (CheckpointId %d) - not in region %s",
+					serverId, checkpointId, regionCode)
+			}
+		}
+	} else {
+		// If we couldn't get checkpoint IDs, use all checks
+		filteredChecks = checkResponse.Data
+		log.Printf("No checkpoint IDs found for region %s, using all %d checks",
+			regionCode, len(filteredChecks))
+	}
+
+	// If we have no valid checks after filtering, return error
+	if len(filteredChecks) == 0 {
+		return nil, fmt.Errorf("no check results found for monitor %s in region %s",
+			monitorGuid, regionCode)
+	}
+
+	// Get the first (latest) result from filtered checks
+	check := filteredChecks[0].Attributes
 
 	// Determine if the check was successful based on ErrorLevel
 	isAvailable := check.ErrorLevel == "NoError" || check.ErrorLevel == "Warning"
@@ -465,6 +554,7 @@ func (c *UptrendsClient) GetLatestMonitorCheck(monitorGuid string) (*model.Domai
 
 	// Create domain check result
 	result := &model.DomainCheckResult{
+		Domain:           "", // Will be filled in by caller
 		StatusCode:       check.HttpStatusCode,
 		ResponseTime:     int(check.TotalTime), // Convert float to int
 		Available:        isAvailable,

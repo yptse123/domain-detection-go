@@ -13,5 +13,5 @@ type MonitorClient interface {
 	// DeleteMonitor deletes a monitor in the monitoring service
 	DeleteMonitor(monitorGuid string) error
 
-	GetLatestMonitorCheck(monitorGUID string) (*model.DomainCheckResult, error)
+	GetLatestMonitorCheck(monitorGUID, region string) (*model.DomainCheckResult, error)
 }
