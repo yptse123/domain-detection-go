@@ -164,7 +164,7 @@ func (h *DomainHandler) AddBatchDomains(c *gin.Context) {
 		return
 	}
 
-	// Remove duplicates from the request - now using DomainBatchItem
+	// Make sure unique domains are considered per region
 	uniqueDomains := make(map[string]bool)
 	var filteredDomains []model.DomainBatchItem
 	for _, domainItem := range req.Domains {
@@ -179,11 +179,11 @@ func (h *DomainHandler) AddBatchDomains(c *gin.Context) {
 		var normalizedKey string
 
 		if err == nil && (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
-			// Use hostname as the key for URLs with protocol
-			normalizedKey = strings.ToLower(parsedURL.Hostname())
+			// Use hostname+region as the key for URLs with protocol
+			normalizedKey = strings.ToLower(parsedURL.Hostname()) + ":" + domainItem.Region
 		} else {
-			// Use the whole string as key for plain domains
-			normalizedKey = strings.ToLower(domainName)
+			// Use domain+region as key for plain domains
+			normalizedKey = strings.ToLower(domainName) + ":" + domainItem.Region
 		}
 
 		if !uniqueDomains[normalizedKey] {

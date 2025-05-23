@@ -130,19 +130,15 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 
 	err = s.db.Get(&count, `
     SELECT COUNT(*) FROM domains 
-    WHERE user_id = $1 AND LOWER(name) = LOWER($2)
-`, userID, fullURL)
+    WHERE user_id = $1 AND LOWER(name) = LOWER($2) AND region = $3
+`, userID, fullURL, req.Region)
 
 	if err != nil {
 		return 0, err
 	}
 
 	if count > 0 {
-		return 0, errors.New("domain already exists")
-	}
-
-	if count > 0 {
-		return 0, errors.New("domain already exists")
+		return 0, errors.New("domain already exists in this region")
 	}
 
 	// Set default interval if not provided
@@ -234,7 +230,7 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 
 	// Get existing domains for this user to avoid duplicates
 	existingDomains := make(map[string]bool)
-	rows, err := s.db.Query("SELECT name FROM domains WHERE user_id = $1", userID)
+	rows, err := s.db.Query("SELECT name, region FROM domains WHERE user_id = $1", userID)
 	if err != nil {
 		log.Printf("Error checking existing domains: %v", err)
 		for _, domainItem := range req.Domains {
@@ -247,19 +243,20 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	}
 	defer rows.Close()
 
-	// Store normalized hostnames (without protocol) for duplicate detection
+	// Store normalized hostnames with regions for duplicate detection
 	for rows.Next() {
-		var fullURL string
-		if err := rows.Scan(&fullURL); err != nil {
+		var fullURL, region string
+		if err := rows.Scan(&fullURL, &region); err != nil {
 			continue
 		}
 
 		// Extract hostname from URL if it contains protocol
 		parsedURL, err := url.Parse(fullURL)
 		if err == nil && (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
-			existingDomains[strings.ToLower(parsedURL.Hostname())] = true
+			// Use hostname+region as the key
+			existingDomains[strings.ToLower(parsedURL.Hostname())+":"+region] = true
 		} else {
-			existingDomains[strings.ToLower(fullURL)] = true
+			existingDomains[strings.ToLower(fullURL)+":"+region] = true
 		}
 	}
 
@@ -321,6 +318,18 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 			fullURL = "https://" + domainInput
 		}
 
+		// Create combined key with domain+region for duplicate checking
+		domainKey := strings.ToLower(fullURL) + ":" + domainItem.Region
+
+		// Check if this domain+region combination already exists
+		if existingDomains[domainKey] {
+			response.Failed = append(response.Failed, model.DomainAddResult{
+				Name:   domainItem.Name,
+				Reason: "Domain already exists in this region",
+			})
+			continue
+		}
+
 		// Insert the domain with the per-domain region
 		var domainID int
 		err = s.db.QueryRow(`
@@ -348,7 +357,7 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 		response.Added++
 
 		// Add to our existing domains map to prevent duplicates within the batch
-		existingDomains[strings.ToLower(fullURL)] = true
+		existingDomains[strings.ToLower(fullURL)+":"+domainItem.Region] = true
 	}
 
 	return response
