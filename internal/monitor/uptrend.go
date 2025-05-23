@@ -505,6 +505,7 @@ func (c *UptrendsClient) GetLatestMonitorCheck(monitorGuid, regionCode string) (
 				log.Printf("Including check from ServerId %d (CheckpointId %d) for monitor %s",
 					serverId, checkpointId, monitorGuid)
 				filteredChecks = append(filteredChecks, check)
+				break // We only need the first match
 			} else {
 				log.Printf("Filtering out check from ServerId %d (CheckpointId %d) - not in region %s",
 					serverId, checkpointId, regionCode)
