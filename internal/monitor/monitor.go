@@ -1,11 +1,8 @@
 package monitor
 
 import (
-	"errors"
 	"fmt"
 	"log"
-	"net/http"
-	"net/url"
 	"time"
 
 	"domain-detection-go/internal/domain"
@@ -74,68 +71,33 @@ func (s *MonitorService) checkAllActiveDomains() {
 				}
 			}()
 
-			// 1. Check with Uptrends API
+			// Check with Uptrends API only
 			uptrendsResult, uptrendsErr := s.uptrendsClient.GetLatestMonitorCheck(d.MonitorGuid, d.Region)
 			if uptrendsErr != nil {
 				log.Printf("Error checking domain %s with Uptrends: %v", d.Name, uptrendsErr)
-				// Continue to direct check
-			}
 
-			// 2. Perform direct check
-			directResult, directErr := s.checkDomainDirect(d.Name)
-			if directErr != nil {
-				log.Printf("Error checking domain %s directly: %v", d.Name, directErr)
-				// Continue with Uptrends result only
-			}
-
-			// 3. Combine results using OR logic
-			var finalResult *model.DomainCheckResult
-
-			// If both checks failed, use Uptrends result or create an error result
-			if (uptrendsResult == nil || !uptrendsResult.Available) &&
-				(directResult == nil || !directResult.Available) {
-				if uptrendsResult != nil {
-					finalResult = uptrendsResult
-				} else if directResult != nil {
-					finalResult = directResult
-				} else {
-					// Both checks completely failed, create default error result
-					finalResult = &model.DomainCheckResult{
-						Domain:           d.Name,
-						StatusCode:       503, // Service Unavailable
-						Available:        false,
-						ErrorCode:        -999,
-						ErrorDescription: "Both monitoring systems failed to check domain",
-						CheckedAt:        time.Now(),
-					}
+				// Create error result if Uptrends check failed
+				uptrendsResult = &model.DomainCheckResult{
+					Domain:           d.Name,
+					StatusCode:       503, // Service Unavailable
+					Available:        false,
+					ErrorCode:        -999,
+					ErrorDescription: fmt.Sprintf("Uptrends monitoring failed: %v", uptrendsErr),
+					CheckedAt:        time.Now(),
 				}
-			} else if uptrendsResult != nil && uptrendsResult.Available {
-				// Uptrends shows site available
-				finalResult = uptrendsResult
-
-				// Update response time from direct check if available
-				if directResult != nil && directResult.Available {
-					finalResult.TotalTime = directResult.TotalTime
-					log.Printf("Domain %s available according to both checks. Using direct response time: %dms",
-						d.Name, directResult.TotalTime)
-				} else {
-					log.Printf("Domain %s available according to Uptrends only", d.Name)
-				}
-			} else {
-				// Direct check shows site available but Uptrends doesn't
-				finalResult = directResult
-				finalResult.StatusCode = 200 // Override with OK status
-				log.Printf("Domain %s available according to direct check only. Response time: %dms",
-					d.Name, directResult.TotalTime)
 			}
 
-			// Fill in domain name (though it should be set by each check already)
+			// Use Uptrends result as final result
+			finalResult := uptrendsResult
 			finalResult.Domain = d.Name
 
 			// Get previous status to detect changes
 			prevAvailable := d.Available()
 
-			// 4. Update domain status in database
+			log.Printf("Domain %s check result: available=%v, status=%d, time=%dms",
+				d.Name, finalResult.Available, finalResult.StatusCode, finalResult.TotalTime)
+
+			// Update domain status in database
 			err := s.domainService.UpdateDomainStatus(d.ID, finalResult.StatusCode,
 				finalResult.ErrorCode, finalResult.TotalTime,
 				finalResult.ErrorDescription)
@@ -184,11 +146,8 @@ func (s *MonitorService) RunScheduledChecks() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			s.checkAllActiveDomains()
-		}
+	for range ticker.C {
+		s.checkAllActiveDomains()
 	}
 }
 
@@ -220,88 +179,88 @@ func (s *MonitorService) SyncMonitorStatus() {
 }
 
 // checkDomainDirect performs a direct HTTP check from the application
-func (s *MonitorService) checkDomainDirect(fullURL string) (*model.DomainCheckResult, error) {
-	start := time.Now()
+// func (s *MonitorService) checkDomainDirect(fullURL string) (*model.DomainCheckResult, error) {
+// 	start := time.Now()
 
-	// Parse the URL
-	parsedURL, err := url.Parse(fullURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL format: %w", err)
-	}
+// 	// Parse the URL
+// 	parsedURL, err := url.Parse(fullURL)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("invalid URL format: %w", err)
+// 	}
 
-	// If no scheme provided, default to HTTPS
-	if parsedURL.Scheme == "" {
-		fullURL = fmt.Sprintf("https://%s", fullURL)
-	}
+// 	// If no scheme provided, default to HTTPS
+// 	if parsedURL.Scheme == "" {
+// 		fullURL = fmt.Sprintf("https://%s", fullURL)
+// 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Allow up to 10 redirects
-			if len(via) >= 10 {
-				return errors.New("too many redirects")
-			}
-			return nil
-		},
-	}
+// 	// Create HTTP client with timeout
+// 	client := &http.Client{
+// 		Timeout: 10 * time.Second,
+// 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+// 			// Allow up to 10 redirects
+// 			if len(via) >= 10 {
+// 				return errors.New("too many redirects")
+// 			}
+// 			return nil
+// 		},
+// 	}
 
-	// Create request
-	req, err := http.NewRequest("GET", fullURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
+// 	// Create request
+// 	req, err := http.NewRequest("GET", fullURL, nil)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error creating request: %w", err)
+// 	}
 
-	// Add user agent
-	req.Header.Set("User-Agent", "DomainMonitor/1.0")
+// 	// Add user agent
+// 	req.Header.Set("User-Agent", "DomainMonitor/1.0")
 
-	// Perform request
-	resp, err := client.Do(req)
+// 	// Perform request
+// 	resp, err := client.Do(req)
 
-	// Calculate response time regardless of error
-	responseTime := int(time.Since(start).Milliseconds())
+// 	// Calculate response time regardless of error
+// 	responseTime := int(time.Since(start).Milliseconds())
 
-	// Log any errors from the HTTP request
-	if err != nil {
-		log.Printf("Direct check error for domain %s: %v", fullURL, err)
-	}
+// 	// Log any errors from the HTTP request
+// 	if err != nil {
+// 		log.Printf("Direct check error for domain %s: %v", fullURL, err)
+// 	}
 
-	// Check for connection errors
-	if err != nil {
-		// Return result with error info
-		return &model.DomainCheckResult{
-			Domain:           fullURL,
-			StatusCode:       0,
-			ResponseTime:     responseTime,
-			Available:        false,
-			TotalTime:        responseTime,
-			ErrorCode:        -1, // Custom error code for connection issues
-			ErrorDescription: fmt.Sprintf("Connection error: %v", err),
-			CheckedAt:        time.Now(),
-		}, nil
-	}
-	defer resp.Body.Close()
+// 	// Check for connection errors
+// 	if err != nil {
+// 		// Return result with error info
+// 		return &model.DomainCheckResult{
+// 			Domain:           fullURL,
+// 			StatusCode:       0,
+// 			ResponseTime:     responseTime,
+// 			Available:        false,
+// 			TotalTime:        responseTime,
+// 			ErrorCode:        -1, // Custom error code for connection issues
+// 			ErrorDescription: fmt.Sprintf("Connection error: %v", err),
+// 			CheckedAt:        time.Now(),
+// 		}, nil
+// 	}
+// 	defer resp.Body.Close()
 
-	// Read a small portion of the body to ensure connection is working
-	// but don't download everything
-	buffer := make([]byte, 1024)
-	_, err = resp.Body.Read(buffer)
+// 	// Read a small portion of the body to ensure connection is working
+// 	// but don't download everything
+// 	buffer := make([]byte, 1024)
+// 	_, err = resp.Body.Read(buffer)
 
-	// Log response details
-	log.Printf("Direct check response for %s: status=%d (%s), time=%dms",
-		fullURL, resp.StatusCode, resp.Status, responseTime)
+// 	// Log response details
+// 	log.Printf("Direct check response for %s: status=%d (%s), time=%dms",
+// 		fullURL, resp.StatusCode, resp.Status, responseTime)
 
-	return &model.DomainCheckResult{
-		Domain:           fullURL,
-		StatusCode:       resp.StatusCode,
-		ResponseTime:     responseTime,
-		Available:        resp.StatusCode >= 200 && resp.StatusCode < 400,
-		TotalTime:        responseTime,
-		ErrorCode:        0,
-		ErrorDescription: resp.Status,
-		CheckedAt:        time.Now(),
-	}, nil
-}
+// 	return &model.DomainCheckResult{
+// 		Domain:           fullURL,
+// 		StatusCode:       resp.StatusCode,
+// 		ResponseTime:     responseTime,
+// 		Available:        resp.StatusCode >= 200 && resp.StatusCode < 400,
+// 		TotalTime:        responseTime,
+// 		ErrorCode:        0,
+// 		ErrorDescription: resp.Status,
+// 		CheckedAt:        time.Now(),
+// 	}, nil
+// }
 
 // Close cleans up resources
 func (s *MonitorService) Close() {

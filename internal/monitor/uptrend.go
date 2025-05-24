@@ -67,31 +67,6 @@ func NewUptrendsClient(config UptrendsConfig) *UptrendsClient {
 	return client
 }
 
-// Updated getCheckpointIdForRegion with the correct IDs
-func getCheckpointIdForRegion(region string) string {
-	// Use the verified checkpoint IDs
-	switch region {
-	case "CN", "China":
-		// For China, we have multiple options, but let's use Beijing as primary
-		return "77" // Beijing
-	case "JP", "Japan":
-		return "49" // Tokyo
-	case "KR", "Korea":
-		return "88" // Seoul
-	case "TH", "Thailand":
-		return "96" // Bangkok
-	case "IN", "India":
-		return "36" // Mumbai
-	case "ID", "Indonesia":
-		// No direct checkpoint for Indonesia, use a nearby one like Singapore
-		return "19" // Singapore as fallback
-	case "VN", "Vietnam":
-		return "168" // Hanoi
-	default:
-		return "19" // Singapore as default
-	}
-}
-
 // Updated GetCheckpoints function to parse the correct response format
 func (c *UptrendsClient) GetCheckpoints() (map[string]string, error) {
 	// Wait for rate limiter
