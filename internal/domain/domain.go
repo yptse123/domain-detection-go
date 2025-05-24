@@ -383,17 +383,25 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, domainRegion s
 	regions := []string{domainRegion}
 
 	// Define regions that need fallback because they have fewer than 3 checkpoints
-	regionsNeedingFallback := map[string]bool{
-		"TH": true, // Thailand
-		"ID": true, // Indonesia
-		"VN": true, // Vietnam
-		"KR": true, // Korea
-	}
+	// regionsNeedingFallback := map[string]bool{
+	// 	"TH": true, // Thailand
+	// 	"ID": true, // Indonesia
+	// 	"VN": true, // Vietnam
+	// 	"KR": true, // Korea
+	// }
 
-	// Add Japan as fallback region if needed
-	if regionsNeedingFallback[domainRegion] {
-		regions = append(regions, "JP") // Add Japan
-		log.Printf("Adding Japan fallback region for domain %d with primary region %s", domainID, domainRegion)
+	// // Add Japan as fallback region if needed
+	// if regionsNeedingFallback[domainRegion] {
+	// 	regions = append(regions, "JP") // Add Japan
+	// 	log.Printf("Adding Japan fallback region for domain %d with primary region %s", domainID, domainRegion)
+	// }
+	switch domainRegion {
+	case "TH", "ID", "KR":
+		regions = append(regions, "VN") // Add Vietnam
+		log.Printf("Adding Vietnam fallback region for domain %d with primary region %s", domainID, domainRegion)
+	case "VN":
+		regions = append(regions, "TH") // Add Thailand
+		log.Printf("Adding Thailand fallback region for domain %d with primary region %s", domainID, domainRegion)
 	}
 
 	// Create monitor in monitoring service using primary and fallback regions
