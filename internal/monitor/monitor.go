@@ -1,7 +1,6 @@
 package monitor
 
 import (
-	"fmt"
 	"log"
 	"time"
 
@@ -76,15 +75,9 @@ func (s *MonitorService) checkAllActiveDomains() {
 			if uptrendsErr != nil {
 				log.Printf("Error checking domain %s with Uptrends: %v", d.Name, uptrendsErr)
 
-				// Create error result if Uptrends check failed
-				uptrendsResult = &model.DomainCheckResult{
-					Domain:           d.Name,
-					StatusCode:       503, // Service Unavailable
-					Available:        false,
-					ErrorCode:        -999,
-					ErrorDescription: fmt.Sprintf("Uptrends monitoring failed: %v", uptrendsErr),
-					CheckedAt:        time.Now(),
-				}
+				// Skip notification for Uptrends API failures
+				log.Printf("Skipping notification for domain %s due to Uptrends API failure", d.Name)
+				return
 			}
 
 			// Use Uptrends result as final result
