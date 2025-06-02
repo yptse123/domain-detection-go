@@ -865,3 +865,56 @@ func (s *DomainService) GetAllDomainsWithMonitors() ([]model.Domain, error) {
 
 	return domains, nil
 }
+
+// UpdateDomainSite24x7ID updates only the Site24x7 monitor ID for a domain
+func (s *DomainService) UpdateDomainSite24x7ID(domainID int, site24x7ID string) (int, error) {
+	var site24x7Param interface{}
+
+	if site24x7ID == "" {
+		site24x7Param = nil
+	} else {
+		site24x7Param = site24x7ID
+	}
+
+	result, err := s.db.Exec(`
+        UPDATE domains 
+        SET site24x7_monitor_id = $1, updated_at = NOW() 
+        WHERE id = $2
+    `, site24x7Param, domainID)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to update domain Site24x7 monitor ID: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return 0, fmt.Errorf("domain not found or no changes made")
+	}
+
+	return int(rowsAffected), nil
+}
+
+// GetDomainsWithoutSite24x7Monitor gets all active domains that don't have a Site24x7 monitor
+func (s *DomainService) GetDomainsWithoutSite24x7Monitor() ([]model.Domain, error) {
+	var domains []model.Domain
+
+	query := `
+        SELECT id, user_id, name, active, interval, monitor_guid, site24x7_monitor_id, 
+               last_status, error_code, total_time, error_description, last_check, 
+               created_at, updated_at, region
+        FROM domains 
+        WHERE active = true
+        AND (site24x7_monitor_id IS NULL OR site24x7_monitor_id = '')
+    `
+
+	err := s.db.Select(&domains, query)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching domains without Site24x7 monitors: %w", err)
+	}
+
+	return domains, nil
+}

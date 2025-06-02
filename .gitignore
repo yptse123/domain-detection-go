@@ -1,2 +1,10 @@
 vue/node_modules/*
 vue/*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# But keep the example
+!.env.example

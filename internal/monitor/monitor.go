@@ -1,7 +1,9 @@
 package monitor
 
 import (
+	"fmt"
 	"log"
+	"net/url"
 	"time"
 
 	"domain-detection-go/internal/domain"
@@ -38,6 +40,58 @@ func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7C
 		telegramService: telegramService,
 		regions:         regions,
 	}
+}
+
+// ensureSite24x7Monitor creates a Site24x7 monitor if the domain doesn't have one
+func (s *MonitorService) ensureSite24x7Monitor(domain model.Domain) string {
+	// If domain already has a Site24x7 monitor ID, return it
+	if domain.GetSite24x7MonitorID() != "" {
+		return domain.GetSite24x7MonitorID()
+	}
+
+	// If Site24x7 client is not available, return empty
+	if s.site24x7Client == nil {
+		log.Printf("Site24x7 client not available for domain %s", domain.Name)
+		return ""
+	}
+
+	log.Printf("Creating missing Site24x7 monitor for domain %s in region %s", domain.Name, domain.Region)
+
+	// Extract domain name for the monitor name
+	parsedURL, err := url.Parse(domain.Name)
+	if err != nil {
+		log.Printf("Failed to parse URL for monitor creation: %v", err)
+		return ""
+	}
+
+	displayName := parsedURL.Hostname()
+	if displayName == "" {
+		displayName = domain.Name
+	}
+	monitorName := fmt.Sprintf("Domain Check - %s", displayName)
+
+	// Create monitor with the domain's region
+	regions := []string{domain.Region}
+	site24x7ID, err := s.site24x7Client.CreateMonitor(domain.Name, monitorName, regions)
+	if err != nil {
+		log.Printf("Failed to create Site24x7 monitor for domain %s: %v", domain.Name, err)
+		return ""
+	}
+
+	// Update the domain in the database with the new monitor ID
+	_, dbErr := s.domainService.UpdateDomainSite24x7ID(domain.ID, site24x7ID)
+	if dbErr != nil {
+		log.Printf("Failed to update domain %d with Site24x7 monitor ID %s: %v", domain.ID, site24x7ID, dbErr)
+
+		// Clean up created monitor if database update failed
+		if delErr := s.site24x7Client.DeleteMonitor(site24x7ID); delErr != nil {
+			log.Printf("Failed to delete orphaned Site24x7 monitor %s: %v", site24x7ID, delErr)
+		}
+		return ""
+	}
+
+	log.Printf("Successfully created and linked Site24x7 monitor %s for domain %s", site24x7ID, domain.Name)
+	return site24x7ID
 }
 
 // checkAllActiveDomains checks domains that are due for checking based on their interval
@@ -84,6 +138,13 @@ func (s *MonitorService) checkAllActiveDomains() {
 				if uptrendsErr != nil {
 					log.Printf("Error checking domain %s with Uptrends: %v", d.Name, uptrendsErr)
 				}
+			}
+
+			// Ensure Site24x7 monitor exists and get its ID
+			currentSite24x7ID := d.GetSite24x7MonitorID()
+			if currentSite24x7ID == "" {
+				// Create Site24x7 monitor if it doesn't exist
+				currentSite24x7ID = s.ensureSite24x7Monitor(d)
 			}
 
 			// Check with Site24x7 API if available

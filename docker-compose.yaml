@@ -7,18 +7,17 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/domain_detection?sslmode=disable
-      - JWT_SECRET=change-this-in-production
-      - ENCRYPTION_KEY=change-this-in-production
-      - ENVIRONMENT=development
-      # Add the Uptrends API credentials
-      - UPTRENDS_API_KEY=BYRJFE2XNnLRzLaYIKY6/TdeTjxCw11j
-      - UPTRENDS_USERNAME=4ab357f5ee1d4581a0fdb8607b06b306
-      - UPTRENDS_API_URL=https://api.uptrends.com/v4
-      - TELEGRAM_BOT_TOKEN=7762941862:AAGW96BmgkGouDpgAYJxITCOISLuOrXX_4Y
-      - SITE24X7_CLIENT_ID=1000.F8TO5JEX91VJNSPAPCD5TF40RWUE6K
-      - SITE24X7_CLIENT_SECRET=2a48584831dc1a3de4c1adc4d0efacafa7a63aaa4b
-      - SITE24X7_REFRESH_TOKEN=1000.aab35db7ef1b9a6eca0c48593f98144e.ac5b0a7ddb2c9e21cab10814bb2895ae
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ENVIRONMENT=${ENVIRONMENT}
+      - UPTRENDS_API_KEY=${UPTRENDS_API_KEY}
+      - UPTRENDS_USERNAME=${UPTRENDS_USERNAME}
+      - UPTRENDS_API_URL=${UPTRENDS_API_URL}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - SITE24X7_CLIENT_ID=${SITE24X7_CLIENT_ID}
+      - SITE24X7_CLIENT_SECRET=${SITE24X7_CLIENT_SECRET}
+      - SITE24X7_REFRESH_TOKEN=${SITE24X7_REFRESH_TOKEN}
     depends_on:
       migrations:
         condition: service_completed_successfully
@@ -30,9 +29,9 @@ services:
     container_name: domain-detection-db
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=domain_detection
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
@@ -40,7 +39,7 @@ services:
     networks:
       - domain-detection-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -55,7 +54,7 @@ services:
         condition: service_healthy
     networks:
       - domain-detection-network
-    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@db:5432/domain_detection?sslmode=disable", "up"]
+    command: ["-path", "/migrations", "-database", "${DATABASE_URL}", "up"]
     # docker-compose run --rm migrations
 
 networks:
