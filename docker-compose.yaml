@@ -12,10 +12,13 @@ services:
       - ENCRYPTION_KEY=change-this-in-production
       - ENVIRONMENT=development
       # Add the Uptrends API credentials
-      - UPTRENDS_API_KEY=wtsvtKSCXHjQrVlfPEpY9nBlbDMVvMTx
-      - UPTRENDS_USERNAME=c774c2e5d96745f88a5b9908cc8c8ec4
+      - UPTRENDS_API_KEY=BYRJFE2XNnLRzLaYIKY6/TdeTjxCw11j
+      - UPTRENDS_USERNAME=4ab357f5ee1d4581a0fdb8607b06b306
       - UPTRENDS_API_URL=https://api.uptrends.com/v4
       - TELEGRAM_BOT_TOKEN=7762941862:AAGW96BmgkGouDpgAYJxITCOISLuOrXX_4Y
+      - SITE24X7_CLIENT_ID=1000.F8TO5JEX91VJNSPAPCD5TF40RWUE6K
+      - SITE24X7_CLIENT_SECRET=2a48584831dc1a3de4c1adc4d0efacafa7a63aaa4b
+      - SITE24X7_REFRESH_TOKEN=1000.aab35db7ef1b9a6eca0c48593f98144e.ac5b0a7ddb2c9e21cab10814bb2895ae
     depends_on:
       migrations:
         condition: service_completed_successfully

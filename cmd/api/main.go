@@ -40,15 +40,24 @@ func main() {
 	}
 	uptrendsClient := monitor.NewUptrendsClient(uptrendsConfig)
 
+	// Initialize Site24x7 client
+	site24x7Config := monitor.Site24x7Config{
+		ClientID:     os.Getenv("SITE24X7_CLIENT_ID"),
+		ClientSecret: os.Getenv("SITE24X7_CLIENT_SECRET"),
+		RefreshToken: os.Getenv("SITE24X7_REFRESH_TOKEN"),
+		BaseURL:      "https://www.site24x7.com/api",
+	}
+	site24x7Client := monitor.NewSite24x7Client(site24x7Config)
+
 	telegramConfig := notification.TelegramConfig{
 		APIToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
 	}
 
 	// Initialize services
 	authService := auth.NewAuthService(db, cfg.JWTSecret, cfg.EncryptionKey)
-	domainService := domain.NewDomainService(db, uptrendsClient)
+	domainService := domain.NewDomainService(db, uptrendsClient, site24x7Client)
 	telegramService := notification.NewTelegramService(telegramConfig, db)
-	monitorService := monitor.NewMonitorService(uptrendsClient, domainService, telegramService)
+	monitorService := monitor.NewMonitorService(uptrendsClient, site24x7Client, domainService, telegramService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)

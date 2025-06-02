@@ -115,8 +115,8 @@ func (h *DomainHandler) AddDomain(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "This domain is already being monitored"})
 			return
 		}
-		if err.Error() == "interval must be 10, 20, or 30 minutes" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be 10, 20, or 30 minutes"})
+		if err.Error() == "interval must be 10, 20, 30, 60 or 120 minutes" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be 10, 20, 30, 60 or 120 minutes"})
 			return
 		}
 		if err.Error() == "invalid region" {
@@ -249,8 +249,8 @@ func (h *DomainHandler) UpdateDomain(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
 			return
 		}
-		if err.Error() == "interval must be 10, 20, or 30 minutes" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be 10, 20, or 30 minutes"})
+		if err.Error() == "interval must be 10, 20, 30, 60 or 120 minutes" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be 10, 20, 30, 60 or 120 minutes"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update domain: " + err.Error()})
@@ -288,8 +288,8 @@ func (h *DomainHandler) UpdateAllDomains(c *gin.Context) {
 			return
 		}
 
-		if err.Error() == "interval must be 10, 20, or 30 minutes" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be 10, 20, or 30 minutes"})
+		if err.Error() == "interval must be 10, 20, 30, 60 or 120 minutes" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be 10, 20, 30, 60 or 120 minutes"})
 			return
 		}
 

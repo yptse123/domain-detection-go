@@ -242,87 +242,70 @@ func (c *UptrendsClient) UpdateMonitorStatus(monitorGuid string, isActive bool) 
 	// Wait for rate limiter
 	<-c.rateLimiter.C
 
-	// Create request body
-	requestBody := map[string]interface{}{
+	// Build request URL
+	requestUrl := fmt.Sprintf("%s/Monitor/%s", c.config.BaseURL, monitorGuid)
+
+	// Create update request
+	updateRequest := map[string]interface{}{
 		"IsActive": isActive,
 	}
 
-	jsonData, err := json.Marshal(requestBody)
+	jsonData, err := json.Marshal(updateRequest)
 	if err != nil {
-		return fmt.Errorf("error marshalling request: %w", err)
+		return fmt.Errorf("error marshaling request: %w", err)
 	}
 
-	// Log the request for debugging
-	log.Printf("Updating monitor %s active status to %v", monitorGuid, isActive)
-
-	// Build request using PATCH method as specified in the API
-	url := fmt.Sprintf("%s/Monitor/%s", c.config.BaseURL, monitorGuid)
-	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("PATCH", requestUrl, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
-	// Add headers
 	req.SetBasicAuth(c.config.APIUsername, c.config.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	// Execute request
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error making request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read response body
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("error reading response: %w", err)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("API returned non-success status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	// Log response for debugging
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		log.Printf("API error response: %s", string(body))
-		return fmt.Errorf("API returned non-success status: %d", resp.StatusCode)
-	}
-
+	log.Printf("Successfully updated Uptrends monitor %s status to active=%v", monitorGuid, isActive)
 	return nil
 }
 
-// DeleteMonitor deletes a monitor in Uptrends
 func (c *UptrendsClient) DeleteMonitor(monitorGuid string) error {
 	// Wait for rate limiter
 	<-c.rateLimiter.C
 
-	// Build request for DELETE method
-	url := fmt.Sprintf("%s/Monitor/%s", c.config.BaseURL, monitorGuid)
-	req, err := http.NewRequest("DELETE", url, nil)
+	// Build request URL
+	requestUrl := fmt.Sprintf("%s/Monitor/%s", c.config.BaseURL, monitorGuid)
+
+	req, err := http.NewRequest("DELETE", requestUrl, nil)
 	if err != nil {
-		return fmt.Errorf("error creating delete request: %w", err)
+		return fmt.Errorf("error creating request: %w", err)
 	}
 
-	// Add headers
 	req.SetBasicAuth(c.config.APIUsername, c.config.APIKey)
 	req.Header.Set("Accept", "application/json")
 
-	// Log the request for debugging
-	log.Printf("Deleting monitor with GUID: %s", monitorGuid)
-
-	// Execute request
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("error deleting monitor: %w", err)
+		return fmt.Errorf("error making request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Check response status
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		body, _ := ioutil.ReadAll(resp.Body)
-		log.Printf("Error deleting monitor - status: %d, response: %s", resp.StatusCode, string(body))
-		return fmt.Errorf("API returned non-success status: %d", resp.StatusCode)
+		return fmt.Errorf("API returned non-success status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	log.Printf("Successfully deleted monitor with GUID: %s", monitorGuid)
+	log.Printf("Successfully deleted Uptrends monitor %s", monitorGuid)
 	return nil
 }
 

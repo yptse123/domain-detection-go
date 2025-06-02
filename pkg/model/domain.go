@@ -6,20 +6,37 @@ import (
 
 // Domain represents a domain to be monitored
 type Domain struct {
-	ID               int       `json:"id" db:"id"`
-	UserID           int       `json:"user_id" db:"user_id"`
-	Name             string    `json:"name" db:"name"`
-	Active           bool      `json:"active" db:"active"`
-	Interval         int       `json:"interval" db:"interval"` // Interval in minutes
-	Region           string    `json:"region" db:"region"`     // NEW: Region for this domain
-	MonitorGuid      string    `db:"monitor_guid" json:"monitor_guid"`
-	CreatedAt        time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
-	LastStatus       int       `json:"last_status" db:"last_status"`
-	LastCheck        time.Time `json:"last_check,omitempty" db:"last_check"`
-	ErrorCode        int       `json:"error_code" db:"error_code"`
-	TotalTime        int       `json:"total_time" db:"total_time"`
-	ErrorDescription string    `json:"error_description" db:"error_description"`
+	ID                int       `json:"id" db:"id"`
+	UserID            int       `json:"user_id" db:"user_id"`
+	Name              string    `json:"name" db:"name"`
+	Active            bool      `json:"active" db:"active"`
+	Interval          int       `json:"interval" db:"interval"` // Interval in minutes
+	Region            string    `json:"region" db:"region"`     // Region for this domain
+	MonitorGuid       *string   `json:"monitor_guid" db:"monitor_guid"`
+	Site24x7MonitorID *string   `json:"site24x7_monitor_id" db:"site24x7_monitor_id"` // Add this field
+	CreatedAt         time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+	LastStatus        int       `json:"last_status" db:"last_status"`
+	LastCheck         time.Time `json:"last_check,omitempty" db:"last_check"`
+	ErrorCode         int       `json:"error_code" db:"error_code"`
+	TotalTime         int       `json:"total_time" db:"total_time"`
+	ErrorDescription  string    `json:"error_description" db:"error_description"`
+}
+
+// GetMonitorGuid returns the monitor GUID as a string (empty if nil)
+func (d Domain) GetMonitorGuid() string {
+	if d.MonitorGuid != nil {
+		return *d.MonitorGuid
+	}
+	return ""
+}
+
+// GetSite24x7MonitorID returns the Site24x7 monitor ID as a string (empty if nil)
+func (d Domain) GetSite24x7MonitorID() string {
+	if d.Site24x7MonitorID != nil {
+		return *d.Site24x7MonitorID
+	}
+	return ""
 }
 
 // DomainAddRequest represents the request to add a new domain

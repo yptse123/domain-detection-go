@@ -18,15 +18,17 @@ import (
 
 // DomainService handles domain operations
 type DomainService struct {
-	db            *sqlx.DB
-	monitorClient MonitorClient // Use interface instead of concrete type
+	db             *sqlx.DB
+	uptrendsClient MonitorClient
+	site24x7Client MonitorClient
 }
 
 // NewDomainService creates a new domain service
-func NewDomainService(db *sqlx.DB, monitorClient MonitorClient) *DomainService {
+func NewDomainService(db *sqlx.DB, uptrendsClient MonitorClient, site24x7Client MonitorClient) *DomainService {
 	return &DomainService{
-		db:            db,
-		monitorClient: monitorClient,
+		db:             db,
+		uptrendsClient: uptrendsClient,
+		site24x7Client: site24x7Client,
 	}
 }
 
@@ -145,8 +147,8 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 	interval := req.Interval
 	if interval == 0 {
 		interval = DEFAULT_INTERVAL
-	} else if interval != 10 && interval != 20 && interval != 30 {
-		return 0, errors.New("interval must be 10, 20, or 30 minutes")
+	} else if interval != 10 && interval != 20 && interval != 30 && interval != 60 && interval != 120 {
+		return 0, errors.New("interval must be 10, 20, 30, 60 or 120 minutes")
 	}
 
 	// Insert the domain with the region specified in the request
@@ -218,11 +220,11 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 	interval := req.Interval
 	if interval == 0 {
 		interval = DEFAULT_INTERVAL
-	} else if interval != 10 && interval != 20 && interval != 30 {
+	} else if interval != 10 && interval != 20 && interval != 30 && interval != 60 && interval != 120 {
 		for _, domainItem := range req.Domains {
 			response.Failed = append(response.Failed, model.DomainAddResult{
 				Name:   domainItem.Name,
-				Reason: "Invalid interval - must be 10, 20, or 30 minutes",
+				Reason: "Invalid interval - must be 10, 20, 30, 60 or 120 minutes",
 			})
 		}
 		return response
@@ -365,7 +367,7 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 
 // createMonitorAsync creates a monitor in Uptrends and updates the domain record
 func (s *DomainService) createMonitorAsync(domainID int, fullURL, domainRegion string) {
-	// Add some delay to prevent overwhelming the Uptrends API
+	// Add some delay to prevent overwhelming the APIs
 	time.Sleep(100 * time.Millisecond)
 
 	// Extract domain name for the monitor name
@@ -375,26 +377,13 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, domainRegion s
 		return
 	}
 
-	// Use hostname as display name, not the full URL with scheme
 	displayName := parsedURL.Hostname()
 	monitorName := fmt.Sprintf("Domain Check - %s", displayName)
 
 	// Create array of regions to use (primary + fallbacks)
 	regions := []string{domainRegion}
 
-	// Define regions that need fallback because they have fewer than 3 checkpoints
-	// regionsNeedingFallback := map[string]bool{
-	// 	"TH": true, // Thailand
-	// 	"ID": true, // Indonesia
-	// 	"VN": true, // Vietnam
-	// 	"KR": true, // Korea
-	// }
-
-	// // Add Japan as fallback region if needed
-	// if regionsNeedingFallback[domainRegion] {
-	// 	regions = append(regions, "JP") // Add Japan
-	// 	log.Printf("Adding Japan fallback region for domain %d with primary region %s", domainID, domainRegion)
-	// }
+	// Add fallback regions based on primary region
 	switch domainRegion {
 	case "TH", "ID", "KR":
 		regions = append(regions, "VN") // Add Vietnam
@@ -404,78 +393,68 @@ func (s *DomainService) createMonitorAsync(domainID int, fullURL, domainRegion s
 		log.Printf("Adding Thailand fallback region for domain %d with primary region %s", domainID, domainRegion)
 	}
 
-	// Create monitor in monitoring service using primary and fallback regions
-	monitorGuid, err := s.monitorClient.CreateMonitor(fullURL, monitorName, regions)
-	if err != nil {
-		log.Printf("Failed to create monitor for domain %d (%s): %v", domainID, fullURL, err)
-		// We'll try again during the next system check, but for now just exit
-		return
+	var uptrendsGuid, site24x7ID string
+	var uptrendsErr, site24x7Err error
+
+	// Create monitor in Uptrends
+	if s.uptrendsClient != nil {
+		uptrendsGuid, uptrendsErr = s.uptrendsClient.CreateMonitor(fullURL, monitorName, regions)
+		if uptrendsErr != nil {
+			log.Printf("Failed to create Uptrends monitor for domain %d (%s): %v", domainID, fullURL, uptrendsErr)
+		} else {
+			log.Printf("Successfully created Uptrends monitor %s for domain %d", uptrendsGuid, domainID)
+		}
 	}
 
-	// Update the domain with the monitor GUID
+	// Create monitor in Site24x7
+	if s.site24x7Client != nil {
+		site24x7ID, site24x7Err = s.site24x7Client.CreateMonitor(fullURL, monitorName, regions)
+		if site24x7Err != nil {
+			log.Printf("Failed to create Site24x7 monitor for domain %d (%s): %v", domainID, fullURL, site24x7Err)
+		} else {
+			log.Printf("Successfully created Site24x7 monitor %s for domain %d", site24x7ID, domainID)
+		}
+	}
+
+	// Handle NULL values properly for database update
+	var uptrendsParam, site24x7Param interface{}
+
+	if uptrendsGuid == "" {
+		uptrendsParam = nil
+	} else {
+		uptrendsParam = uptrendsGuid
+	}
+
+	if site24x7ID == "" {
+		site24x7Param = nil
+	} else {
+		site24x7Param = site24x7ID
+	}
+
+	// Update the domain with both monitor IDs
 	_, err = s.db.Exec(`
         UPDATE domains 
-        SET monitor_guid = $1, updated_at = NOW() 
-        WHERE id = $2
-    `, monitorGuid, domainID)
+        SET monitor_guid = $1, site24x7_monitor_id = $2, updated_at = NOW() 
+        WHERE id = $3
+    `, uptrendsParam, site24x7Param, domainID)
 
 	if err != nil {
-		log.Printf("Failed to update domain %d with monitor GUID: %v", domainID, err)
-		// Consider deleting the created monitor to avoid orphaned monitors
-		if monitorGuid != "" {
-			if delErr := s.monitorClient.DeleteMonitor(monitorGuid); delErr != nil {
-				log.Printf("Failed to delete orphaned monitor %s: %v", monitorGuid, delErr)
+		log.Printf("Failed to update domain %d with monitor IDs: %v", domainID, err)
+
+		// Clean up created monitors if database update failed
+		if uptrendsGuid != "" && s.uptrendsClient != nil {
+			if delErr := s.uptrendsClient.DeleteMonitor(uptrendsGuid); delErr != nil {
+				log.Printf("Failed to delete orphaned Uptrends monitor %s: %v", uptrendsGuid, delErr)
+			}
+		}
+		if site24x7ID != "" && s.site24x7Client != nil {
+			if delErr := s.site24x7Client.DeleteMonitor(site24x7ID); delErr != nil {
+				log.Printf("Failed to delete orphaned Site24x7 monitor %s: %v", site24x7ID, delErr)
 			}
 		}
 	} else {
-		log.Printf("Successfully created and linked monitor for domain %d (%s)", domainID, fullURL)
+		log.Printf("Successfully created and linked monitors for domain %d (%s)", domainID, fullURL)
 	}
-}
-
-// GetDomains gets all domains for a user
-func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error) {
-	var domains []model.Domain
-
-	err := s.db.Select(&domains, `
-        SELECT 
-            d.id, 
-            d.user_id, 
-            d.name, 
-            COALESCE(d.active, false) AS active,
-            d.region,  
-            d.last_status, 
-            d.error_code, 
-            d.error_description, 
-            d.last_check, 
-            d.monitor_guid, 
-            d.interval,
-            d.total_time
-        FROM domains d
-        WHERE d.user_id = $1
-        ORDER BY d.created_at DESC
-    `, userID)
-
-	if err != nil {
-		return model.DomainListResponse{}, err
-	}
-
-	// Get domain count and limit
-	var count int
-	err = s.db.Get(&count, "SELECT COUNT(*) FROM domains WHERE user_id = $1", userID)
-	if err != nil {
-		return model.DomainListResponse{}, err
-	}
-
-	limit, err := s.GetDomainLimit(userID)
-	if err != nil {
-		return model.DomainListResponse{}, err
-	}
-
-	return model.DomainListResponse{
-		Domains:      domains,
-		TotalDomains: count,
-		DomainLimit:  limit,
-	}, nil
 }
 
 // GetDomain gets a single domain by ID
@@ -525,8 +504,8 @@ func (s *DomainService) UpdateDomain(domainID, userID int, req model.DomainUpdat
 
 	if req.Interval != nil {
 		// Validate interval
-		if *req.Interval != 10 && *req.Interval != 20 && *req.Interval != 30 {
-			return errors.New("interval must be 10, 20, or 30 minutes")
+		if *req.Interval != 10 && *req.Interval != 20 && *req.Interval != 30 && *req.Interval != 60 && *req.Interval != 120 {
+			return errors.New("interval must be 10, 20, 30, 60, 120 minutes")
 		}
 
 		query += fmt.Sprintf(", interval = $%d", paramIndex)
@@ -550,15 +529,21 @@ func (s *DomainService) UpdateDomain(domainID, userID int, req model.DomainUpdat
 		params = append(params, *req.Region)
 		paramIndex++
 
-		// If region changed and monitor exists, we might need to recreate it
-		if domain.MonitorGuid != "" && domain.Region != *req.Region {
-			// Delete existing monitor
-			if err := s.monitorClient.DeleteMonitor(domain.MonitorGuid); err != nil {
-				log.Printf("Failed to delete monitor for region change: %v", err)
-				// Continue anyway, we'll create a new one
+		// If region changed and monitors exist, recreate them
+		if domain.Region != *req.Region {
+			// Delete existing monitors using helper methods
+			if domain.GetMonitorGuid() != "" && s.uptrendsClient != nil {
+				if err := s.uptrendsClient.DeleteMonitor(domain.GetMonitorGuid()); err != nil {
+					log.Printf("Failed to delete Uptrends monitor for region change: %v", err)
+				}
+			}
+			if domain.GetSite24x7MonitorID() != "" && s.site24x7Client != nil {
+				if err := s.site24x7Client.DeleteMonitor(domain.GetSite24x7MonitorID()); err != nil {
+					log.Printf("Failed to delete Site24x7 monitor for region change: %v", err)
+				}
 			}
 
-			// Schedule creation of a new monitor
+			// Schedule creation of new monitors
 			go s.createMonitorAsync(domainID, domain.Name, *req.Region)
 		}
 	}
@@ -569,7 +554,6 @@ func (s *DomainService) UpdateDomain(domainID, userID int, req model.DomainUpdat
 
 	// Execute update if we have fields to update
 	if paramIndex > 1 {
-		// Execute update
 		log.Printf("Executing query: %s with params: %v", query, params)
 		_, err = s.db.Exec(query, params...)
 		if err != nil {
@@ -577,15 +561,92 @@ func (s *DomainService) UpdateDomain(domainID, userID int, req model.DomainUpdat
 		}
 	}
 
-	// If monitor_guid exists and active status changed, update monitor status
-	if domain.MonitorGuid != "" && req.Active != nil && req.Region == nil {
-		if err := s.monitorClient.UpdateMonitorStatus(domain.MonitorGuid, *req.Active); err != nil {
-			log.Printf("Failed to update monitor status: %v", err)
-			// Continue despite the error - we've updated the database already
+	// Update monitor statuses if active status changed using helper methods
+	if req.Active != nil && req.Region == nil {
+		if domain.GetMonitorGuid() != "" && s.uptrendsClient != nil {
+			if err := s.uptrendsClient.UpdateMonitorStatus(domain.GetMonitorGuid(), *req.Active); err != nil {
+				log.Printf("Failed to update Uptrends monitor status: %v", err)
+			}
+		}
+		if domain.GetSite24x7MonitorID() != "" && s.site24x7Client != nil {
+			if err := s.site24x7Client.UpdateMonitorStatus(domain.GetSite24x7MonitorID(), *req.Active); err != nil {
+				log.Printf("Failed to update Site24x7 monitor status: %v", err)
+			}
 		}
 	}
 
 	return nil
+}
+
+// GetDomains gets all domains for a user
+func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error) {
+	var domains []model.Domain
+
+	err := s.db.Select(&domains, `
+        SELECT 
+            d.id, 
+            d.user_id, 
+            d.name, 
+            COALESCE(d.active, false) AS active,
+            d.region,  
+            d.last_status, 
+            d.error_code, 
+            d.error_description, 
+            d.last_check, 
+            d.monitor_guid,
+            d.site24x7_monitor_id,
+            d.interval,
+            d.total_time
+        FROM domains d
+        WHERE d.user_id = $1
+        ORDER BY d.created_at DESC
+    `, userID)
+
+	if err != nil {
+		return model.DomainListResponse{}, err
+	}
+
+	// Get domain count and limit
+	var count int
+	err = s.db.Get(&count, "SELECT COUNT(*) FROM domains WHERE user_id = $1", userID)
+	if err != nil {
+		return model.DomainListResponse{}, err
+	}
+
+	limit, err := s.GetDomainLimit(userID)
+	if err != nil {
+		return model.DomainListResponse{}, err
+	}
+
+	return model.DomainListResponse{
+		Domains:      domains,
+		TotalDomains: count,
+		DomainLimit:  limit,
+	}, nil
+}
+
+// GetAllActiveDomainsWithMonitors gets all active domains with monitor IDs
+func (s *DomainService) GetAllActiveDomainsWithMonitors() ([]model.Domain, error) {
+	var domains []model.Domain
+
+	query := `
+        SELECT id, user_id, name, active, interval, monitor_guid, site24x7_monitor_id, 
+               last_status, error_code, total_time, error_description, last_check, 
+               created_at, updated_at, region
+        FROM domains 
+        WHERE active = true
+        AND (
+            (monitor_guid IS NOT NULL AND monitor_guid != '') 
+            OR (site24x7_monitor_id IS NOT NULL AND site24x7_monitor_id != '')
+        )
+    `
+
+	err := s.db.Select(&domains, query)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching active domains with monitors: %w", err)
+	}
+
+	return domains, nil
 }
 
 // UpdateAllUserDomains updates settings for domains of a user in a specific region
@@ -596,12 +657,10 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 	var query string
 
 	if req.Region != nil && *req.Region != "" {
-		// Only get domains from the specified region
-		query = "SELECT id, name, monitor_guid, region FROM domains WHERE user_id = $1 AND region = $2"
+		query = "SELECT id, name, monitor_guid, site24x7_monitor_id, region FROM domains WHERE user_id = $1 AND region = $2"
 		params = []interface{}{userID, *req.Region}
 	} else {
-		// Get all domains for the user (original behavior)
-		query = "SELECT id, name, monitor_guid, region FROM domains WHERE user_id = $1"
+		query = "SELECT id, name, monitor_guid, site24x7_monitor_id, region FROM domains WHERE user_id = $1"
 		params = []interface{}{userID}
 	}
 
@@ -614,26 +673,23 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 		if req.Region != nil && *req.Region != "" {
 			return fmt.Errorf("no domains found in region %s", *req.Region)
 		}
-		return nil // No domains to update, but not an error
+		return nil
 	}
 
-	// Build dynamic SQL update query based on which fields are provided
+	// Build dynamic SQL update query
 	updateQuery := "UPDATE domains SET updated_at = NOW()"
 	updateParams := []interface{}{}
 	paramIndex := 1
 
-	// Add active field if provided
 	if req.Active != nil {
 		updateQuery += fmt.Sprintf(", active = $%d", paramIndex)
 		updateParams = append(updateParams, *req.Active)
 		paramIndex++
 	}
 
-	// Add interval field if provided
 	if req.Interval != nil {
-		// Validate interval
-		if *req.Interval != 10 && *req.Interval != 20 && *req.Interval != 30 {
-			return errors.New("interval must be 10, 20, or 30 minutes")
+		if *req.Interval != 10 && *req.Interval != 20 && *req.Interval != 30 && *req.Interval != 60 && *req.Interval != 120 {
+			return errors.New("interval must be 10, 20, 30, 60 or 120 minutes")
 		}
 
 		updateQuery += fmt.Sprintf(", interval = $%d", paramIndex)
@@ -645,14 +701,12 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 	if req.Region != nil && *req.Region != "" {
 		updateQuery += fmt.Sprintf(" WHERE user_id = $%d AND region = $%d", paramIndex, paramIndex+1)
 		updateParams = append(updateParams, userID, *req.Region)
-		paramIndex += 2
 	} else {
 		updateQuery += fmt.Sprintf(" WHERE user_id = $%d", paramIndex)
 		updateParams = append(updateParams, userID)
-		paramIndex++
 	}
 
-	// Execute the update if we have at least one field to update
+	// Execute the update if we have fields to update
 	if paramIndex > 1 {
 		log.Printf("Executing query: %s with params: %v", updateQuery, updateParams)
 		_, err = s.db.Exec(updateQuery, updateParams...)
@@ -661,13 +715,17 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 		}
 	}
 
-	// Only update monitors in Uptrends if active status is changing
+	// Update monitors in both services if active status is changing using helper methods
 	if req.Active != nil {
 		for _, domain := range domains {
-			if domain.MonitorGuid != "" {
-				if err := s.monitorClient.UpdateMonitorStatus(domain.MonitorGuid, *req.Active); err != nil {
-					log.Printf("Failed to update monitor status for domain %d: %v", domain.ID, err)
-					// Continue with other domains despite errors
+			if domain.GetMonitorGuid() != "" && s.uptrendsClient != nil {
+				if err := s.uptrendsClient.UpdateMonitorStatus(domain.GetMonitorGuid(), *req.Active); err != nil {
+					log.Printf("Failed to update Uptrends monitor status for domain %d: %v", domain.ID, err)
+				}
+			}
+			if domain.GetSite24x7MonitorID() != "" && s.site24x7Client != nil {
+				if err := s.site24x7Client.UpdateMonitorStatus(domain.GetSite24x7MonitorID(), *req.Active); err != nil {
+					log.Printf("Failed to update Site24x7 monitor status for domain %d: %v", domain.ID, err)
 				}
 			}
 		}
@@ -678,7 +736,7 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 
 // DeleteDomain deletes a domain
 func (s *DomainService) DeleteDomain(userID, domainID int) error {
-	// First get the domain to retrieve its monitor_guid
+	// First get the domain to retrieve its monitor IDs
 	var domain model.Domain
 	err := s.db.Get(&domain, "SELECT * FROM domains WHERE id = $1 AND user_id = $2", domainID, userID)
 	if err != nil {
@@ -689,11 +747,16 @@ func (s *DomainService) DeleteDomain(userID, domainID int) error {
 		return err
 	}
 
-	// If there's a monitor GUID, delete the monitor in Uptrends
-	if domain.MonitorGuid != "" {
-		if err := s.monitorClient.DeleteMonitor(domain.MonitorGuid); err != nil {
-			// Log the error but continue with domain deletion
-			log.Printf("Failed to delete monitor %s: %v", domain.MonitorGuid, err)
+	// Delete monitors from both services using helper methods
+	if domain.GetMonitorGuid() != "" && s.uptrendsClient != nil {
+		if err := s.uptrendsClient.DeleteMonitor(domain.GetMonitorGuid()); err != nil {
+			log.Printf("Failed to delete Uptrends monitor %s: %v", domain.GetMonitorGuid(), err)
+		}
+	}
+
+	if domain.GetSite24x7MonitorID() != "" && s.site24x7Client != nil {
+		if err := s.site24x7Client.DeleteMonitor(domain.GetSite24x7MonitorID()); err != nil {
+			log.Printf("Failed to delete Site24x7 monitor %s: %v", domain.GetSite24x7MonitorID(), err)
 		}
 	}
 
@@ -735,28 +798,6 @@ func (s *DomainService) GetAllActiveDomains() ([]model.Domain, error) {
 
 	err := s.db.Select(&domains, query)
 	return domains, err
-}
-
-// GetAllActiveDomainsWithMonitors gets all active domains with monitor GUIDs
-func (s *DomainService) GetAllActiveDomainsWithMonitors() ([]model.Domain, error) {
-	var domains []model.Domain
-
-	query := `
-        SELECT id, user_id, name, active, interval, monitor_guid, last_status,
-               error_code, total_time, error_description, last_check, 
-               created_at, updated_at, region
-        FROM domains 
-        WHERE active = true
-        AND monitor_guid IS NOT NULL 
-        AND monitor_guid != ''
-    `
-
-	err := s.db.Select(&domains, query)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching active domains with monitors: %w", err)
-	}
-
-	return domains, nil
 }
 
 // UpdateDomainStatus updates the status of a domain
@@ -808,11 +849,13 @@ func (s *DomainService) GetAllActiveDomainsWithUserRegions() ([]model.DomainWith
 func (s *DomainService) GetAllDomainsWithMonitors() ([]model.Domain, error) {
 	var domains []model.Domain
 
-	// Query to get all domains with non-null monitor_guid
+	// Query to get all domains with non-null monitor GUIDs or Site24x7 IDs
 	query := `
-        SELECT id, user_id, name, active, interval, monitor_guid, last_status, last_check, created_at, updated_at
+        SELECT id, user_id, name, active, interval, monitor_guid, site24x7_monitor_id, 
+               last_status, last_check, created_at, updated_at, region
         FROM domains 
-        WHERE monitor_guid IS NOT NULL AND monitor_guid != ''
+        WHERE (monitor_guid IS NOT NULL AND monitor_guid != '')
+           OR (site24x7_monitor_id IS NOT NULL AND site24x7_monitor_id != '')
     `
 
 	err := s.db.Select(&domains, query)

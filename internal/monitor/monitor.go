@@ -12,14 +12,14 @@ import (
 // MonitorService manages domain monitoring operations
 type MonitorService struct {
 	uptrendsClient  *UptrendsClient
+	site24x7Client  *Site24x7Client // Add this field
 	domainService   *domain.DomainService
 	telegramService *notification.TelegramService
 	regions         []string
-	// mu             sync.Mutex
 }
 
 // NewMonitorService creates a new monitor service
-func NewMonitorService(uptrendsClient *UptrendsClient, domainService *domain.DomainService, telegramService *notification.TelegramService) *MonitorService {
+func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7Client, domainService *domain.DomainService, telegramService *notification.TelegramService) *MonitorService {
 	// Default regions to check
 	regions := []string{
 		"CN", // China
@@ -33,6 +33,7 @@ func NewMonitorService(uptrendsClient *UptrendsClient, domainService *domain.Dom
 
 	return &MonitorService{
 		uptrendsClient:  uptrendsClient,
+		site24x7Client:  site24x7Client,
 		domainService:   domainService,
 		telegramService: telegramService,
 		regions:         regions,
@@ -51,8 +52,12 @@ func (s *MonitorService) checkAllActiveDomains() {
 	now := time.Now()
 
 	for _, domain := range domains {
-		// Skip domains without monitor GUID
-		if domain.MonitorGuid == "" {
+		// Use helper methods to get string values
+		uptrendsGuid := domain.GetMonitorGuid()
+		site24x7ID := domain.GetSite24x7MonitorID()
+
+		// Skip domains without any monitor IDs
+		if uptrendsGuid == "" && site24x7ID == "" {
 			continue
 		}
 
@@ -70,25 +75,65 @@ func (s *MonitorService) checkAllActiveDomains() {
 				}
 			}()
 
-			// Check with Uptrends API only
-			uptrendsResult, uptrendsErr := s.uptrendsClient.GetLatestMonitorCheck(d.MonitorGuid, d.Region)
-			if uptrendsErr != nil {
-				log.Printf("Error checking domain %s with Uptrends: %v", d.Name, uptrendsErr)
+			var uptrendsResult, site24x7Result *model.DomainCheckResult
+			var uptrendsErr, site24x7Err error
 
-				// Skip notification for Uptrends API failures
-				log.Printf("Skipping notification for domain %s due to Uptrends API failure", d.Name)
+			// Check with Uptrends API if available
+			if d.GetMonitorGuid() != "" {
+				uptrendsResult, uptrendsErr = s.uptrendsClient.GetLatestMonitorCheck(d.GetMonitorGuid(), d.Region)
+				if uptrendsErr != nil {
+					log.Printf("Error checking domain %s with Uptrends: %v", d.Name, uptrendsErr)
+				}
+			}
+
+			// Check with Site24x7 API if available
+			if d.GetSite24x7MonitorID() != "" {
+				site24x7Result, site24x7Err = s.site24x7Client.GetLatestMonitorCheck(d.GetSite24x7MonitorID(), d.Region)
+				if site24x7Err != nil {
+					log.Printf("Error checking domain %s with Site24x7: %v", d.Name, site24x7Err)
+				}
+			}
+
+			// Skip if both providers failed
+			if uptrendsErr != nil && site24x7Err != nil {
+				log.Printf("Both monitoring providers failed for domain %s, skipping notification", d.Name)
 				return
 			}
 
-			// Use Uptrends result as final result
-			finalResult := uptrendsResult
+			// Determine final result and availability
+			var finalResult *model.DomainCheckResult
+			var isAvailable bool
+
+			if uptrendsResult != nil && site24x7Result != nil {
+				// Both providers available - domain is available only if BOTH report it as available
+				isAvailable = uptrendsResult.Available && site24x7Result.Available
+
+				// Use Uptrends result as primary, but adjust availability
+				finalResult = uptrendsResult
+				finalResult.Available = isAvailable
+
+				log.Printf("Domain %s check results - Uptrends: available=%v, status=%d | Site24x7: available=%v, status=%d | Final: available=%v",
+					d.Name, uptrendsResult.Available, uptrendsResult.StatusCode,
+					site24x7Result.Available, site24x7Result.StatusCode, isAvailable)
+			} else if uptrendsResult != nil {
+				// Only Uptrends available
+				finalResult = uptrendsResult
+				isAvailable = uptrendsResult.Available
+				log.Printf("Domain %s check result (Uptrends only): available=%v, status=%d",
+					d.Name, isAvailable, uptrendsResult.StatusCode)
+			} else {
+				// Only Site24x7 available
+				finalResult = site24x7Result
+				isAvailable = site24x7Result.Available
+				log.Printf("Domain %s check result (Site24x7 only): available=%v, status=%d",
+					d.Name, isAvailable, site24x7Result.StatusCode)
+			}
+
 			finalResult.Domain = d.Name
+			finalResult.Available = isAvailable
 
 			// Get previous status to detect changes
 			prevAvailable := d.Available()
-
-			log.Printf("Domain %s check result: available=%v, status=%d, time=%dms",
-				d.Name, finalResult.Available, finalResult.StatusCode, finalResult.TotalTime)
 
 			// Update domain status in database
 			err := s.domainService.UpdateDomainStatus(d.ID, finalResult.StatusCode,
@@ -156,15 +201,20 @@ func (s *MonitorService) SyncMonitorStatus() {
 	}
 
 	for _, domain := range domains {
-		// Skip if no monitor GUID
-		if domain.MonitorGuid == "" {
-			continue
+		// Update Uptrends monitor status if available
+		if domain.GetMonitorGuid() != "" && s.uptrendsClient != nil {
+			err := s.uptrendsClient.UpdateMonitorStatus(domain.GetMonitorGuid(), domain.Active)
+			if err != nil {
+				log.Printf("Error syncing Uptrends monitor status for domain %d: %v", domain.ID, err)
+			}
 		}
 
-		// Update monitor status to match database
-		err := s.uptrendsClient.UpdateMonitorStatus(domain.MonitorGuid, domain.Active)
-		if err != nil {
-			log.Printf("Error syncing monitor status for domain %d: %v", domain.ID, err)
+		// Update Site24x7 monitor status if available
+		if domain.GetSite24x7MonitorID() != "" && s.site24x7Client != nil {
+			err := s.site24x7Client.UpdateMonitorStatus(domain.GetSite24x7MonitorID(), domain.Active)
+			if err != nil {
+				log.Printf("Error syncing Site24x7 monitor status for domain %d: %v", domain.ID, err)
+			}
 		}
 	}
 
@@ -258,6 +308,7 @@ func (s *MonitorService) SyncMonitorStatus() {
 // Close cleans up resources
 func (s *MonitorService) Close() {
 	s.uptrendsClient.Close()
+	s.site24x7Client.Close() // Add this
 }
 
 // isDomainDueForCheck determines if a domain is due for a check based on its interval
