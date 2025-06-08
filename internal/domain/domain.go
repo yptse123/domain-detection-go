@@ -866,6 +866,38 @@ func (s *DomainService) GetAllDomainsWithMonitors() ([]model.Domain, error) {
 	return domains, nil
 }
 
+// UpdateDomainUptrendsGUID updates only the Uptrends monitor GUID for a domain
+func (s *DomainService) UpdateDomainUptrendsGUID(domainID int, uptrendsGuid string) (int, error) {
+	var uptrendsParam interface{}
+
+	if uptrendsGuid == "" {
+		uptrendsParam = nil
+	} else {
+		uptrendsParam = uptrendsGuid
+	}
+
+	result, err := s.db.Exec(`
+        UPDATE domains 
+        SET monitor_guid = $1, updated_at = NOW() 
+        WHERE id = $2
+    `, uptrendsParam, domainID)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to update domain Uptrends monitor GUID: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return 0, fmt.Errorf("domain not found or no changes made")
+	}
+
+	return int(rowsAffected), nil
+}
+
 // UpdateDomainSite24x7ID updates only the Site24x7 monitor ID for a domain
 func (s *DomainService) UpdateDomainSite24x7ID(domainID int, site24x7ID string) (int, error) {
 	var site24x7Param interface{}

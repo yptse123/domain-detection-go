@@ -42,6 +42,67 @@ func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7C
 	}
 }
 
+// ensureUptrendsMonitor creates an Uptrends monitor if the domain doesn't have one
+func (s *MonitorService) ensureUptrendsMonitor(domain model.Domain) string {
+	// If domain already has an Uptrends monitor GUID, return it
+	if domain.GetMonitorGuid() != "" {
+		return domain.GetMonitorGuid()
+	}
+
+	// If Uptrends client is not available, return empty
+	if s.uptrendsClient == nil {
+		log.Printf("Uptrends client not available for domain %s", domain.Name)
+		return ""
+	}
+
+	log.Printf("Creating missing Uptrends monitor for domain %s in region %s", domain.Name, domain.Region)
+
+	// Extract domain name for the monitor name
+	parsedURL, err := url.Parse(domain.Name)
+	if err != nil {
+		log.Printf("Failed to parse URL for monitor creation: %v", err)
+		return ""
+	}
+
+	displayName := parsedURL.Hostname()
+	if displayName == "" {
+		displayName = domain.Name
+	}
+	monitorName := fmt.Sprintf("Domain Check - %s", displayName)
+
+	// Create monitor with the domain's region
+	regions := []string{domain.Region}
+
+	// Add fallback regions based on primary region
+	switch domain.Region {
+	case "TH", "ID", "KR":
+		regions = append(regions, "VN") // Add Vietnam
+	case "VN":
+		regions = append(regions, "TH") // Add Thailand
+	}
+
+	uptrendsGuid, err := s.uptrendsClient.CreateMonitor(domain.Name, monitorName, regions)
+	if err != nil {
+		log.Printf("Failed to create Uptrends monitor for domain %s: %v", domain.Name, err)
+		return ""
+	}
+
+	// Update the domain in the database with the new monitor GUID
+	_, dbErr := s.domainService.UpdateDomainUptrendsGUID(domain.ID, uptrendsGuid)
+	if dbErr != nil {
+		log.Printf("Failed to update domain %d with Uptrends monitor GUID %s: %v", domain.ID, uptrendsGuid, dbErr)
+
+		// Clean up created monitor if database update failed
+		if delErr := s.uptrendsClient.DeleteMonitor(uptrendsGuid); delErr != nil {
+			log.Printf("Failed to delete orphaned Uptrends monitor %s: %v", uptrendsGuid, delErr)
+		}
+		return ""
+	}
+
+	log.Printf("Successfully created and linked Uptrends monitor %s for domain %s", uptrendsGuid, domain.Name)
+	return uptrendsGuid
+}
+
 // ensureSite24x7Monitor creates a Site24x7 monitor if the domain doesn't have one
 func (s *MonitorService) ensureSite24x7Monitor(domain model.Domain) string {
 	// If domain already has a Site24x7 monitor ID, return it
@@ -132,9 +193,16 @@ func (s *MonitorService) checkAllActiveDomains() {
 			var uptrendsResult, site24x7Result *model.DomainCheckResult
 			var uptrendsErr, site24x7Err error
 
+			// Ensure Uptrends monitor exists and get its GUID
+			currentUptrendsGuid := d.GetMonitorGuid()
+			if currentUptrendsGuid == "" {
+				// Create Uptrends monitor if it doesn't exist
+				currentUptrendsGuid = s.ensureUptrendsMonitor(d)
+			}
+
 			// Check with Uptrends API if available
-			if d.GetMonitorGuid() != "" {
-				uptrendsResult, uptrendsErr = s.uptrendsClient.GetLatestMonitorCheck(d.GetMonitorGuid(), d.Region)
+			if currentUptrendsGuid != "" {
+				uptrendsResult, uptrendsErr = s.uptrendsClient.GetLatestMonitorCheck(currentUptrendsGuid, d.Region)
 				if uptrendsErr != nil {
 					log.Printf("Error checking domain %s with Uptrends: %v", d.Name, uptrendsErr)
 				}
@@ -148,8 +216,8 @@ func (s *MonitorService) checkAllActiveDomains() {
 			}
 
 			// Check with Site24x7 API if available
-			if d.GetSite24x7MonitorID() != "" {
-				site24x7Result, site24x7Err = s.site24x7Client.GetLatestMonitorCheck(d.GetSite24x7MonitorID(), d.Region)
+			if currentSite24x7ID != "" {
+				site24x7Result, site24x7Err = s.site24x7Client.GetLatestMonitorCheck(currentSite24x7ID, d.Region)
 				if site24x7Err != nil {
 					log.Printf("Error checking domain %s with Site24x7: %v", d.Name, site24x7Err)
 				}
