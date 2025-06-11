@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"domain-detection-go/internal/service"
 	"domain-detection-go/pkg/model"
 
 	"github.com/jmoiron/sqlx"
@@ -28,28 +29,30 @@ type TelegramConfig struct {
 
 // TelegramService manages interactions with the Telegram Bot API
 type TelegramService struct {
-	config      TelegramConfig
-	db          *sqlx.DB
-	httpClient  *http.Client
-	rateLimiter <-chan time.Time
-	notifyLock  sync.Mutex
-	notifyCache map[string]time.Time // Cache to track recent notifications
-	cacheTTL    time.Duration        // How long to suppress duplicate notifications
+	config        TelegramConfig
+	db            *sqlx.DB
+	promptService *service.TelegramPromptService
+	httpClient    *http.Client
+	rateLimiter   <-chan time.Time
+	notifyLock    sync.Mutex
+	notifyCache   map[string]time.Time // Cache to track recent notifications
+	// cacheTTL      time.Duration        // How long to suppress duplicate notifications
 }
 
 // NewTelegramService creates a new telegram service
-func NewTelegramService(config TelegramConfig, db *sqlx.DB) *TelegramService {
+func NewTelegramService(config TelegramConfig, db *sqlx.DB, promptService *service.TelegramPromptService) *TelegramService {
 	// Set defaults if not provided
 	if config.BaseURL == "" {
 		config.BaseURL = "https://api.telegram.org/bot"
 	}
 
 	return &TelegramService{
-		config:      config,
-		db:          db,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
-		rateLimiter: time.Tick(500 * time.Millisecond), // Max 2 API calls per second
-		notifyCache: make(map[string]time.Time),
+		config:        config,
+		db:            db,
+		promptService: promptService,
+		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		rateLimiter:   time.Tick(500 * time.Millisecond), // Max 2 API calls per second
+		notifyCache:   make(map[string]time.Time),
 		// cacheTTL:    1 * time.Hour, // Default: suppress same notifications for 1 hour
 	}
 }
@@ -114,12 +117,18 @@ func (s *TelegramService) AddTelegramConfig(
 	userID int,
 	chatID,
 	chatName string,
+	language string,
 	notifyOnDown,
 	notifyOnUp bool,
 	isActive bool,
 	monitorRegions []string,
 ) (int, error) {
 	var configID int
+
+	// Set default language if not provided
+	if language == "" {
+		language = "en"
+	}
 
 	// Start a transaction
 	tx, err := s.db.Beginx()
@@ -134,13 +143,13 @@ func (s *TelegramService) AddTelegramConfig(
 		}
 	}()
 
-	// Insert the base config
+	// Insert the base config with language
 	err = tx.QueryRow(`
         INSERT INTO telegram_configs
-        (user_id, chat_id, chat_name, notify_on_down, notify_on_up, is_active, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+        (user_id, chat_id, chat_name, language, notify_on_down, notify_on_up, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
         RETURNING id
-    `, userID, chatID, chatName, notifyOnDown, notifyOnUp, isActive).Scan(&configID)
+    `, userID, chatID, chatName, language, notifyOnDown, notifyOnUp, isActive).Scan(&configID)
 
 	if err != nil {
 		return 0, fmt.Errorf("failed to add Telegram configuration: %w", err)
@@ -322,6 +331,7 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 		ID             int      `db:"id"`
 		ChatID         string   `db:"chat_id"`
 		ChatName       string   `db:"chat_name"`
+		Language       string   `db:"language"`
 		IsActive       bool     `db:"is_active"`
 		NotifyOnUp     bool     `db:"notify_on_up"`
 		NotifyOnDown   bool     `db:"notify_on_down"`
@@ -330,7 +340,7 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 
 	// First get basic config info
 	err := s.db.Select(&configs, `
-        SELECT tc.id, tc.chat_id, tc.chat_name, tc.is_active, tc.notify_on_up, tc.notify_on_down
+        SELECT tc.id, tc.chat_id, tc.chat_name, tc.language, tc.is_active, tc.notify_on_up, tc.notify_on_down
         FROM telegram_configs tc
         WHERE tc.user_id = $1
     `, domain.UserID)
@@ -400,25 +410,22 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 		}
 	}
 
-	// Create a location object for UTC+8 (Asia/Hong_Kong)
+	// Create base message templates with prompt keys
+	var baseMessage string
+	if !domain.Available() {
+		baseMessage = "telegram.message.domain_down\n\ntelegram.label.status: {status}\ntelegram.label.error: {error}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
+	} else if statusChanged {
+		baseMessage = "telegram.message.domain_up\n\ntelegram.label.status: {status}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
+	} else {
+		baseMessage = "{emoji} telegram.message.domain_status\n\ntelegram.label.status: {status}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
+	}
+
+	// Create time formatting
 	loc, err := time.LoadLocation(TIMEZONE_LOCATION)
 	if err != nil {
-		// Fallback to UTC+8 fixed offset if location name isn't available
 		loc = time.FixedZone("UTC+8", 8*60*60)
 	}
-
-	// Format time in UTC+8
 	formattedTime := domain.LastCheck.In(loc).Format("2006-01-02 15:04:05")
-
-	// Format message based on domain status
-	var message string
-	if !domain.Available() {
-		message = formatDownMessage(domain, formattedTime)
-	} else if statusChanged {
-		message = formatUpMessage(domain, formattedTime)
-	} else {
-		message = formatStatusUpdateMessage(domain, formattedTime)
-	}
 
 	// Send to all configured chats that match notification preferences
 	for _, config := range configs {
@@ -477,6 +484,15 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 			}
 		}
 
+		// Get language for this config, default to English
+		language := config.Language
+		if language == "" {
+			language = "en"
+		}
+
+		// Format message using prompt replacement for this specific language
+		message := s.formatMessage(baseMessage, language, domain, formattedTime)
+
 		// Send message to this chat
 		if err := s.sendTelegramMessage(config.ChatID, message); err != nil {
 			log.Printf("Failed to send Telegram notification to chat %s: %v", config.ChatName, err)
@@ -501,27 +517,44 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	return nil
 }
 
-// Helper functions to format messages
-func formatDownMessage(domain model.Domain, formattedTime string) string {
-	return fmt.Sprintf("🔴 Domain %s is DOWN\n\nStatus: %d\nError: %s\nResponse Time: %dms\nLast Check: %s (UTC+8)",
-		domain.Name, domain.LastStatus, domain.ErrorDescription, domain.TotalTime,
-		formattedTime)
-}
-
-func formatUpMessage(domain model.Domain, formattedTime string) string {
-	return fmt.Sprintf("🟢 Domain %s is back UP\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s (UTC+8)",
-		domain.Name, domain.LastStatus, domain.TotalTime,
-		formattedTime)
-}
-
-func formatStatusUpdateMessage(domain model.Domain, formattedTime string) string {
-	statusEmoji := "🟢"
-	if domain.TotalTime > 2000 {
-		statusEmoji = "🟠" // Slow response
+// formatMessage replaces all prompt keys in the message with translations
+func (s *TelegramService) formatMessage(message, language string, domain model.Domain, formattedTime string) string {
+	// Get all prompts for the specified language
+	prompts, err := s.promptService.GetAllPromptsByLanguage(language)
+	if err != nil {
+		log.Printf("Failed to get prompts for language %s: %v", language, err)
+		// Fallback to English if language prompts not found
+		prompts, err = s.promptService.GetAllPromptsByLanguage("en")
+		if err != nil {
+			log.Printf("Failed to get English prompts as fallback: %v", err)
+			return message // Return original message if no prompts found
+		}
 	}
-	return fmt.Sprintf("%s Domain %s status update\n\nStatus: %d\nResponse Time: %dms\nLast Check: %s (UTC+8)",
-		statusEmoji, domain.Name, domain.LastStatus, domain.TotalTime,
-		formattedTime)
+
+	// Replace all prompt keys found in the message
+	for _, prompt := range prompts {
+		if strings.Contains(message, prompt.Key) {
+			message = strings.ReplaceAll(message, prompt.Key, prompt.Message)
+		}
+	}
+
+	// Replace domain-specific placeholders
+	message = strings.ReplaceAll(message, "{domain}", domain.Name)
+	message = strings.ReplaceAll(message, "{status}", fmt.Sprintf("%d", domain.LastStatus))
+	message = strings.ReplaceAll(message, "{error}", domain.ErrorDescription)
+	message = strings.ReplaceAll(message, "{response_time}", fmt.Sprintf("%d", domain.TotalTime))
+	message = strings.ReplaceAll(message, "{last_check}", formattedTime)
+
+	// Handle emoji for status updates
+	if strings.Contains(message, "{emoji}") {
+		emoji := "🟢"
+		if domain.TotalTime > 2000 {
+			emoji = "🟠"
+		}
+		message = strings.ReplaceAll(message, "{emoji}", emoji)
+	}
+
+	return message
 }
 
 // sendTelegramMessage sends a text message to a specific Telegram chat

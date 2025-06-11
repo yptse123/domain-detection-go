@@ -56,6 +56,7 @@ func (h *TelegramHandler) AddTelegramConfig(c *gin.Context) {
 		userID,
 		req.ChatID,
 		req.ChatName,
+		req.Language,
 		req.NotifyOnDown,
 		req.NotifyOnUp,
 		req.IsActive,

@@ -16,6 +16,7 @@ import (
 	"domain-detection-go/internal/middleware"
 	"domain-detection-go/internal/monitor"
 	"domain-detection-go/internal/notification"
+	"domain-detection-go/internal/service"
 	"domain-detection-go/pkg/config"
 )
 
@@ -56,13 +57,15 @@ func main() {
 	// Initialize services
 	authService := auth.NewAuthService(db, cfg.JWTSecret, cfg.EncryptionKey)
 	domainService := domain.NewDomainService(db, uptrendsClient, site24x7Client)
-	telegramService := notification.NewTelegramService(telegramConfig, db)
+	promptService := service.NewTelegramPromptService(db)
+	telegramService := notification.NewTelegramService(telegramConfig, db, promptService)
 	monitorService := monitor.NewMonitorService(uptrendsClient, site24x7Client, domainService, telegramService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
 	domainHandler := handler.NewDomainHandler(domainService)
 	telegramHandler := handler.NewTelegramHandler(telegramService)
+	promptHandler := handler.NewTelegramPromptHandler(promptService)
 	// monitorHandler := handler.NewMonitorHandler(monitorService)
 
 	// Start the scheduled domain check in a goroutine
@@ -123,6 +126,13 @@ func main() {
 			// Add this new route for sending test messages
 			telegramRoutes.POST("/configs/:id/test", telegramHandler.SendTestMessage)
 		}
+
+		// prompt management routes
+		protected.GET("/telegram-prompts", promptHandler.GetPrompts)
+		protected.GET("/telegram-prompts/:id", promptHandler.GetPrompt)
+		protected.POST("/telegram-prompts", promptHandler.CreatePrompt)
+		protected.PUT("/telegram-prompts/:id", promptHandler.UpdatePrompt)
+		protected.DELETE("/telegram-prompts/:id", promptHandler.DeletePrompt)
 
 		// Admin routes
 		admin := protected.Group("/admin")
