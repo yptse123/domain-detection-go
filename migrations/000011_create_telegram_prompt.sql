@@ -5,13 +5,13 @@ CREATE INDEX idx_telegram_configs_language ON telegram_configs(language);
 -- Create telegram_prompts table
 CREATE TABLE telegram_prompts (
     id SERIAL PRIMARY KEY,
-    key VARCHAR(100) NOT NULL,
+    key VARCHAR(100) NOT NULL ,
     language VARCHAR(10) NOT NULL DEFAULT 'en',
     message TEXT NOT NULL,
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(key, language)  -- Same key can exist in different languages
+    UNIQUE(key, language)
 );
 
 CREATE INDEX idx_telegram_prompts_key ON telegram_prompts(key);
