@@ -11,7 +11,7 @@ CREATE TABLE telegram_prompts (
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(key, language)
+    UNIQUE(key, language)  -- Same key can exist in different languages
 );
 
 CREATE INDEX idx_telegram_prompts_key ON telegram_prompts(key);
