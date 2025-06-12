@@ -15,6 +15,7 @@ type TelegramConfig struct {
 	UserID         int       `json:"user_id" db:"user_id"`
 	ChatID         string    `json:"chat_id" db:"chat_id"`
 	ChatName       string    `json:"chat_name" db:"chat_name"`
+	Language       string    `json:"language" db:"language"` // Add this field
 	IsActive       bool      `json:"is_active" db:"is_active"`
 	NotifyOnDown   bool      `json:"notify_on_down" db:"notify_on_down"`
 	NotifyOnUp     bool      `json:"notify_on_up" db:"notify_on_up"`

@@ -198,7 +198,7 @@ func (s *TelegramService) GetTelegramConfigsForUser(userID int) ([]model.Telegra
 
 	// Query base configurations
 	err := s.db.Select(&configs, `
-        SELECT id, user_id, chat_id, chat_name, is_active, notify_on_down, notify_on_up, created_at, updated_at
+        SELECT id, user_id, chat_id, chat_name, language, is_active, notify_on_down, notify_on_up, created_at, updated_at
         FROM telegram_configs
         WHERE user_id = $1
         ORDER BY created_at DESC
@@ -233,11 +233,17 @@ func (s *TelegramService) UpdateTelegramConfig(
 	userID int,
 	chatID,
 	chatName string,
+	language string,
 	notifyOnDown,
 	notifyOnUp bool,
 	isActive bool,
 	monitorRegions []string,
 ) error {
+	// Set default language if not provided
+	if language == "" {
+		language = "en"
+	}
+
 	// Start a transaction
 	tx, err := s.db.Beginx()
 	if err != nil {
@@ -256,12 +262,13 @@ func (s *TelegramService) UpdateTelegramConfig(
         UPDATE telegram_configs
         SET chat_id = $1,
             chat_name = $2,
-            notify_on_down = $3,
-            notify_on_up = $4,
-            is_active = $5,
+            language = $3,
+            notify_on_down = $4,
+            notify_on_up = $5,
+            is_active = $6,
             updated_at = NOW()
-        WHERE id = $6 AND user_id = $7
-    `, chatID, chatName, notifyOnDown, notifyOnUp, isActive, configID, userID)
+        WHERE id = $7 AND user_id = $8
+    `, chatID, chatName, language, notifyOnDown, notifyOnUp, isActive, configID, userID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update Telegram configuration: %w", err)
