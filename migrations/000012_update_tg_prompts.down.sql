@@ -1,11 +1,14 @@
--- Add language column to telegram_configs
-ALTER TABLE telegram_configs ADD COLUMN language VARCHAR(10) DEFAULT 'en';
-CREATE INDEX idx_telegram_configs_language ON telegram_configs(language);
+-- Drop the new indexes
+DROP INDEX IF EXISTS idx_telegram_prompts_messages;
+DROP INDEX IF EXISTS idx_telegram_prompts_key;
 
--- Create telegram_prompts table
+-- Drop the updated table
+DROP TABLE IF EXISTS telegram_prompts;
+
+-- Recreate the original table structure from migration 11
 CREATE TABLE telegram_prompts (
     id SERIAL PRIMARY KEY,
-    key VARCHAR(100) NOT NULL ,
+    key VARCHAR(100) NOT NULL,
     language VARCHAR(10) NOT NULL DEFAULT 'en',
     message TEXT NOT NULL,
     description TEXT,
@@ -15,4 +18,4 @@ CREATE TABLE telegram_prompts (
 );
 
 CREATE INDEX idx_telegram_prompts_key ON telegram_prompts(key);
-CREATE INDEX idx_telegram_prompts_language ON telegram_prompts(language);
+CREATE INDEX idx_telegram_prompts_language ON telegram_prompts(language); 
