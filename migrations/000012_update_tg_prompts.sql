@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS telegram_prompts;
+
 -- Add language column to telegram_configs
 ALTER TABLE telegram_configs ADD COLUMN language VARCHAR(10) DEFAULT 'en';
 CREATE INDEX idx_telegram_configs_language ON telegram_configs(language);
