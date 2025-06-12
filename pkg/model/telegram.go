@@ -36,21 +36,56 @@ type TelegramConfigRequest struct {
 
 // TelegramPrompt represents a localized message template
 type TelegramPrompt struct {
-	ID          int       `json:"id" db:"id"`
-	Key         string    `json:"key" db:"key"`
-	Language    string    `json:"language" db:"language"`
-	Message     string    `json:"message" db:"message"`
-	Description string    `json:"description" db:"description"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID          int               `json:"id" db:"id"`
+	PromptKey   string            `json:"prompt_key" db:"prompt_key"`
+	Description string            `json:"description" db:"description"`
+	Messages    map[string]string `json:"messages" db:"messages"`
+	CreatedAt   time.Time         `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at" db:"updated_at"`
 }
 
 // TelegramPromptRequest for creating/updating prompts
 type TelegramPromptRequest struct {
-	Key         string `json:"key" binding:"required"`
-	Language    string `json:"language" binding:"required"`
-	Message     string `json:"message" binding:"required"`
+	PromptKey   string `json:"prompt_key" binding:"required"`
 	Description string `json:"description"`
+	En          string `json:"en"`
+	Zh          string `json:"zh"`
+	Hi          string `json:"hi"`
+	Id          string `json:"id"`
+	Vi          string `json:"vi"`
+	Ko          string `json:"ko"`
+	Ja          string `json:"ja"`
+	Th          string `json:"th"`
+}
+
+// ToMessages converts individual language fields to messages map
+func (r *TelegramPromptRequest) ToMessages() map[string]string {
+	messages := make(map[string]string)
+	if r.En != "" {
+		messages["en"] = r.En
+	}
+	if r.Zh != "" {
+		messages["zh"] = r.Zh
+	}
+	if r.Hi != "" {
+		messages["hi"] = r.Hi
+	}
+	if r.Id != "" {
+		messages["id"] = r.Id
+	}
+	if r.Vi != "" {
+		messages["vi"] = r.Vi
+	}
+	if r.Ko != "" {
+		messages["ko"] = r.Ko
+	}
+	if r.Ja != "" {
+		messages["ja"] = r.Ja
+	}
+	if r.Th != "" {
+		messages["th"] = r.Th
+	}
+	return messages
 }
 
 // TelegramPromptResponse for paginated results

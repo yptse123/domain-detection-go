@@ -519,7 +519,7 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 
 // formatMessage replaces all prompt keys in the message with translations
 func (s *TelegramService) formatMessage(message, language string, domain model.Domain, formattedTime string) string {
-	// Get all prompts for the specified language
+	// Get all prompts
 	prompts, err := s.promptService.GetAllPromptsByLanguage(language)
 	if err != nil {
 		log.Printf("Failed to get prompts for language %s: %v", language, err)
@@ -533,8 +533,11 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 
 	// Replace all prompt keys found in the message
 	for _, prompt := range prompts {
-		if strings.Contains(message, prompt.Key) {
-			message = strings.ReplaceAll(message, prompt.Key, prompt.Message)
+		if strings.Contains(message, prompt.PromptKey) {
+			// Get the message for the specified language
+			if msg, exists := prompt.Messages[language]; exists && msg != "" {
+				message = strings.ReplaceAll(message, prompt.PromptKey, msg)
+			}
 		}
 	}
 
