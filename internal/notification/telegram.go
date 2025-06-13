@@ -543,15 +543,17 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 		if strings.Contains(message, prompt.PromptKey) {
 			// Get the message for the specified language
 			if msg, exists := prompt.Messages[language]; exists && msg != "" {
-				message = strings.ReplaceAll(message, prompt.PromptKey, msg)
+				// Escape Markdown characters in the translated text
+				escapedMsg := escapeMarkdown(msg)
+				message = strings.ReplaceAll(message, prompt.PromptKey, escapedMsg)
 			}
 		}
 	}
 
-	// Replace domain-specific placeholders
-	message = strings.ReplaceAll(message, "{domain}", domain.Name)
+	// Replace domain-specific placeholders with escaped content
+	message = strings.ReplaceAll(message, "{domain}", escapeMarkdown(domain.Name))
 	message = strings.ReplaceAll(message, "{status}", fmt.Sprintf("%d", domain.LastStatus))
-	message = strings.ReplaceAll(message, "{error}", domain.ErrorDescription)
+	message = strings.ReplaceAll(message, "{error}", escapeMarkdown(domain.ErrorDescription))
 	message = strings.ReplaceAll(message, "{response_time}", fmt.Sprintf("%d", domain.TotalTime))
 	message = strings.ReplaceAll(message, "{last_check}", formattedTime)
 
@@ -565,6 +567,38 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 	}
 
 	return message
+}
+
+// escapeMarkdown escapes special Markdown characters to prevent parsing errors
+func escapeMarkdown(text string) string {
+	// Characters that need to be escaped in Telegram Markdown
+	replacements := map[string]string{
+		"_": "\\_",
+		"*": "\\*",
+		"`": "\\`",
+		"[": "\\[",
+		"]": "\\]",
+		"(": "\\(",
+		")": "\\)",
+		"~": "\\~",
+		">": "\\>",
+		"#": "\\#",
+		"+": "\\+",
+		"-": "\\-",
+		"=": "\\=",
+		"|": "\\|",
+		"{": "\\{",
+		"}": "\\}",
+		".": "\\.",
+		"!": "\\!",
+	}
+
+	result := text
+	for char, escaped := range replacements {
+		result = strings.ReplaceAll(result, char, escaped)
+	}
+
+	return result
 }
 
 // sendTelegramMessage sends a text message to a specific Telegram chat
