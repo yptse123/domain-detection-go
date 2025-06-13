@@ -420,11 +420,11 @@ func (s *TelegramService) SendDomainStatusNotification(domain model.Domain, stat
 	// Create base message templates with prompt keys
 	var baseMessage string
 	if !domain.Available() {
-		baseMessage = "telegram.message.domain_down\n\ntelegram.label.status: {status}\ntelegram.label.error: {error}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
+		baseMessage = "{emoji} telegram.label.domain {domain} telegram.message.domain_down\n\ntelegram.label.status: {status}\ntelegram.label.error: {error}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
 	} else if statusChanged {
-		baseMessage = "telegram.message.domain_up\n\ntelegram.label.status: {status}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
+		baseMessage = "{emoji} telegram.label.domain {domain} telegram.message.domain_up\n\ntelegram.label.status: {status}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
 	} else {
-		baseMessage = "{emoji} telegram.message.domain_status\n\ntelegram.label.status: {status}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
+		baseMessage = "{emoji} telegram.label.domain {domain} telegram.message.domain_status\n\ntelegram.label.status: {status}\ntelegram.label.response_time: {response_time}ms\ntelegram.label.last_check: {last_check} (UTC+8)"
 	}
 
 	// Create time formatting
