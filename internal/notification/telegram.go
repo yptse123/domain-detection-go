@@ -543,17 +543,16 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 		if strings.Contains(message, prompt.PromptKey) {
 			// Get the message for the specified language
 			if msg, exists := prompt.Messages[language]; exists && msg != "" {
-				// Escape Markdown characters in the translated text
-				escapedMsg := escapeMarkdown(msg)
-				message = strings.ReplaceAll(message, prompt.PromptKey, escapedMsg)
+				// Don't escape since we're sending as plain text
+				message = strings.ReplaceAll(message, prompt.PromptKey, msg)
 			}
 		}
 	}
 
-	// Replace domain-specific placeholders with escaped content
-	message = strings.ReplaceAll(message, "{domain}", escapeMarkdown(domain.Name))
+	// Replace domain-specific placeholders (no escaping needed for plain text)
+	message = strings.ReplaceAll(message, "{domain}", domain.Name)
 	message = strings.ReplaceAll(message, "{status}", fmt.Sprintf("%d", domain.LastStatus))
-	message = strings.ReplaceAll(message, "{error}", escapeMarkdown(domain.ErrorDescription))
+	message = strings.ReplaceAll(message, "{error}", domain.ErrorDescription)
 	message = strings.ReplaceAll(message, "{response_time}", fmt.Sprintf("%d", domain.TotalTime))
 	message = strings.ReplaceAll(message, "{last_check}", formattedTime)
 
@@ -605,13 +604,17 @@ func escapeMarkdown(text string) string {
 func (s *TelegramService) sendTelegramMessage(chatID, message string) error {
 	<-s.rateLimiter // Rate limiting
 
+	// Debug: Print the message before sending
+	log.Printf("DEBUG: Sending message to chat %s:\n%s", chatID, message)
+	log.Printf("DEBUG: Message length: %d bytes", len(message))
+
 	url := fmt.Sprintf("%s%s/sendMessage", s.config.BaseURL, s.config.APIToken)
 
-	// Prepare request body
+	// Prepare request body - Remove parse_mode to avoid Markdown issues
 	requestBody := map[string]interface{}{
-		"chat_id":    chatID,
-		"text":       message,
-		"parse_mode": "Markdown",
+		"chat_id": chatID,
+		"text":    message,
+		// Remove parse_mode to send as plain text
 	}
 
 	jsonData, err := json.Marshal(requestBody)
