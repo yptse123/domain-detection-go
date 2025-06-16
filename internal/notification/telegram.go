@@ -559,18 +559,18 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 	message = strings.ReplaceAll(message, "{response_time}", fmt.Sprintf("%d", domain.TotalTime))
 	message = strings.ReplaceAll(message, "{last_check}", formattedTime)
 
+	// Additional pass: Replace any English text that appears directly in the message
 	for _, prompt := range prompts {
-		// Also check if the message contains the English text directly
-		if enMsg, exists := prompt.Messages["en"]; exists && enMsg != "" && strings.Contains(message, enMsg) {
-			log.Printf("DEBUG: Found English text '%s' in message for language '%s'", enMsg, language)
-			if msg, exists := prompt.Messages[language]; exists && msg != "" {
-				log.Printf("DEBUG: Replacing '%s' with '%s'", enMsg, msg)
-				// Replace English text with the selected language
-				message = strings.ReplaceAll(message, enMsg, msg)
-			} else {
-				log.Printf("DEBUG: No translation found for language '%s', keeping English text '%s'", language, enMsg)
+		if enMsg, exists := prompt.Messages["en"]; exists && enMsg != "" {
+			if strings.Contains(message, enMsg) {
+				log.Printf("DEBUG: Found English text '%s' in message for language '%s'", enMsg, language)
+				if msg, exists := prompt.Messages[language]; exists && msg != "" {
+					log.Printf("DEBUG: Replacing '%s' with '%s'", enMsg, msg)
+					message = strings.ReplaceAll(message, enMsg, msg)
+				} else {
+					log.Printf("DEBUG: No translation found for language '%s', keeping English text '%s'", language, enMsg)
+				}
 			}
-			// If selected language doesn't exist, keep the English text (no replacement needed)
 		}
 	}
 
