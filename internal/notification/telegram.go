@@ -550,7 +550,16 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 				message = strings.ReplaceAll(message, prompt.PromptKey, enMsg)
 			}
 		}
+	}
 
+	// Replace domain-specific placeholders (no escaping needed for plain text)
+	message = strings.ReplaceAll(message, "{domain}", domain.Name)
+	message = strings.ReplaceAll(message, "{status}", fmt.Sprintf("%d", domain.LastStatus))
+	message = strings.ReplaceAll(message, "{error}", domain.ErrorDescription)
+	message = strings.ReplaceAll(message, "{response_time}", fmt.Sprintf("%d", domain.TotalTime))
+	message = strings.ReplaceAll(message, "{last_check}", formattedTime)
+
+	for _, prompt := range prompts {
 		// Also check if the message contains the English text directly
 		if enMsg, exists := prompt.Messages["en"]; exists && enMsg != "" && strings.Contains(message, enMsg) {
 			if msg, exists := prompt.Messages[language]; exists && msg != "" {
@@ -560,13 +569,6 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 			// If selected language doesn't exist, keep the English text (no replacement needed)
 		}
 	}
-
-	// Replace domain-specific placeholders (no escaping needed for plain text)
-	message = strings.ReplaceAll(message, "{domain}", domain.Name)
-	message = strings.ReplaceAll(message, "{status}", fmt.Sprintf("%d", domain.LastStatus))
-	message = strings.ReplaceAll(message, "{error}", domain.ErrorDescription)
-	message = strings.ReplaceAll(message, "{response_time}", fmt.Sprintf("%d", domain.TotalTime))
-	message = strings.ReplaceAll(message, "{last_check}", formattedTime)
 
 	// Handle emoji for status updates
 	if strings.Contains(message, "{emoji}") {
