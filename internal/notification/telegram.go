@@ -538,14 +538,26 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 		}
 	}
 
-	// Replace all prompt keys found in the message
+	// Replace all prompt keys and prompt messages found in the message
 	for _, prompt := range prompts {
 		if strings.Contains(message, prompt.PromptKey) {
 			// Get the message for the specified language
 			if msg, exists := prompt.Messages[language]; exists && msg != "" {
 				// Don't escape since we're sending as plain text
 				message = strings.ReplaceAll(message, prompt.PromptKey, msg)
+			} else if enMsg, exists := prompt.Messages["en"]; exists && enMsg != "" {
+				// Fallback to English if the specified language doesn't exist
+				message = strings.ReplaceAll(message, prompt.PromptKey, enMsg)
 			}
+		}
+
+		// Also check if the message contains the English text directly
+		if enMsg, exists := prompt.Messages["en"]; exists && enMsg != "" && strings.Contains(message, enMsg) {
+			if msg, exists := prompt.Messages[language]; exists && msg != "" {
+				// Replace English text with the selected language
+				message = strings.ReplaceAll(message, enMsg, msg)
+			}
+			// If selected language doesn't exist, keep the English text (no replacement needed)
 		}
 	}
 
