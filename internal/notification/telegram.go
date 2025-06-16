@@ -538,6 +538,8 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 		}
 	}
 
+	promptsEn, _ := s.promptService.GetAllPromptsByLanguage(language)
+
 	// Replace all prompt keys and prompt messages found in the message
 	for _, prompt := range prompts {
 		if strings.Contains(message, prompt.PromptKey) {
@@ -572,16 +574,23 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 	// Debug: Print current message before replacement
 	log.Printf("DEBUG: Current message before English replacement: %s", message)
 
-	for _, prompt := range prompts {
-		if enMsg, exists := prompt.Messages["en"]; exists && enMsg != "" {
+	for _, promptEn := range promptsEn {
+		if enMsg, exists := promptEn.Messages["en"]; exists && enMsg != "" {
 			log.Printf("DEBUG: Checking English message: '%s'", enMsg)
 			if strings.Contains(message, enMsg) {
 				log.Printf("DEBUG: Found English text '%s' in message for language '%s'", enMsg, language)
-				if msg, exists := prompt.Messages[language]; exists && msg != "" {
-					log.Printf("DEBUG: Replacing '%s' with '%s'", enMsg, msg)
-					message = strings.ReplaceAll(message, enMsg, msg)
-				} else {
-					log.Printf("DEBUG: No translation found for language '%s', keeping English text '%s'", language, enMsg)
+
+				// Find corresponding prompt in target language prompts
+				for _, prompt := range prompts {
+					if prompt.PromptKey == promptEn.PromptKey {
+						if msg, exists := prompt.Messages[language]; exists && msg != "" {
+							log.Printf("DEBUG: Replacing '%s' with '%s'", enMsg, msg)
+							message = strings.ReplaceAll(message, enMsg, msg)
+						} else {
+							log.Printf("DEBUG: No translation found for language '%s', keeping English text '%s'", language, enMsg)
+						}
+						break
+					}
 				}
 			} else {
 				log.Printf("DEBUG: English text '%s' not found in message", enMsg)
