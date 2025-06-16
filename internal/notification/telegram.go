@@ -560,8 +560,21 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 	message = strings.ReplaceAll(message, "{last_check}", formattedTime)
 
 	// Additional pass: Replace any English text that appears directly in the message
+	// Debug: Print all prompts
+	log.Printf("DEBUG: Total prompts found: %d", len(prompts))
+	for i, prompt := range prompts {
+		log.Printf("DEBUG: Prompt %d - Key: %s", i, prompt.PromptKey)
+		for lang, msg := range prompt.Messages {
+			log.Printf("DEBUG: Prompt %d - Language: %s, Message: %s", i, lang, msg)
+		}
+	}
+
+	// Debug: Print current message before replacement
+	log.Printf("DEBUG: Current message before English replacement: %s", message)
+
 	for _, prompt := range prompts {
 		if enMsg, exists := prompt.Messages["en"]; exists && enMsg != "" {
+			log.Printf("DEBUG: Checking English message: '%s'", enMsg)
 			if strings.Contains(message, enMsg) {
 				log.Printf("DEBUG: Found English text '%s' in message for language '%s'", enMsg, language)
 				if msg, exists := prompt.Messages[language]; exists && msg != "" {
@@ -570,9 +583,14 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 				} else {
 					log.Printf("DEBUG: No translation found for language '%s', keeping English text '%s'", language, enMsg)
 				}
+			} else {
+				log.Printf("DEBUG: English text '%s' not found in message", enMsg)
 			}
 		}
 	}
+
+	// Debug: Print final message after replacement
+	log.Printf("DEBUG: Final message after English replacement: %s", message)
 
 	// Handle emoji for status updates
 	if strings.Contains(message, "{emoji}") {
