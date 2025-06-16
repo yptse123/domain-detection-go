@@ -538,7 +538,7 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 		}
 	}
 
-	promptsEn, _ := s.promptService.GetAllPromptsByLanguage(language)
+	promptsEn, _ := s.promptService.GetAllPromptsByLanguage("en")
 
 	// Replace all prompt keys and prompt messages found in the message
 	for _, prompt := range prompts {
