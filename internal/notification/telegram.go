@@ -768,3 +768,90 @@ func (s *TelegramService) SendTelegramMessageToConfig(config model.TelegramConfi
 
 	return nil
 }
+
+// GetUserIDByChatID finds user ID by chat ID
+func (s *TelegramService) GetUserIDByChatID(chatID string) (int, error) {
+	var userID int
+	err := s.db.Get(&userID, `
+        SELECT user_id 
+        FROM telegram_configs 
+        WHERE chat_id = $1 AND is_active = true
+        LIMIT 1
+    `, chatID)
+
+	if err != nil {
+		return 0, fmt.Errorf("user not found for chat ID %s: %w", chatID, err)
+	}
+
+	return userID, nil
+}
+
+// SendMessage sends a plain text message
+func (s *TelegramService) SendMessage(chatID, message string) error {
+	return s.sendTelegramMessage(chatID, message)
+}
+
+type TelegramInlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data,omitempty"`
+}
+
+// SendMessageWithKeyboard sends a message with inline keyboard
+func (s *TelegramService) SendMessageWithKeyboard(chatID, message string, keyboard [][]TelegramInlineKeyboardButton) error {
+	<-s.rateLimiter // Rate limiting
+
+	url := fmt.Sprintf("%s%s/sendMessage", s.config.BaseURL, s.config.APIToken)
+
+	requestBody := map[string]interface{}{
+		"chat_id":    chatID,
+		"text":       message,
+		"parse_mode": "Markdown",
+		"reply_markup": map[string]interface{}{
+			"inline_keyboard": keyboard,
+		},
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := s.httpClient.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to send message: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("Telegram API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// AnswerCallbackQuery answers a callback query
+func (s *TelegramService) AnswerCallbackQuery(callbackQueryID, text string) error {
+	<-s.rateLimiter // Rate limiting
+
+	url := fmt.Sprintf("%s%s/answerCallbackQuery", s.config.BaseURL, s.config.APIToken)
+
+	requestBody := map[string]interface{}{
+		"callback_query_id": callbackQueryID,
+		"text":              text,
+		"show_alert":        false,
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := s.httpClient.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to answer callback query: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return nil
+}

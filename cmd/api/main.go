@@ -65,6 +65,7 @@ func main() {
 	authHandler := handler.NewAuthHandler(authService)
 	domainHandler := handler.NewDomainHandler(domainService)
 	telegramHandler := handler.NewTelegramHandler(telegramService)
+	telegramBotHandler := handler.NewTelegramBotHandler(telegramService, domainService)
 	promptHandler := handler.NewTelegramPromptHandler(promptService)
 	// monitorHandler := handler.NewMonitorHandler(monitorService)
 
@@ -91,6 +92,9 @@ func main() {
 	router.POST("/api/login", authHandler.Login)
 	router.POST("/api/register", authHandler.Register)
 	router.GET("/api/regions", authHandler.GetRegions)
+
+	// Add webhook endpoint for Telegram bot (public, no auth required)
+	router.POST("/api/telegram/webhook", telegramBotHandler.WebhookHandler)
 
 	// Protected routes
 	protected := router.Group("/api")
