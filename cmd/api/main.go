@@ -54,12 +54,23 @@ func main() {
 		APIToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
 	}
 
+	// Add email configuration
+	emailConfig := notification.EmailConfig{
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     os.Getenv("SMTP_PORT"),
+		SMTPUsername: os.Getenv("SMTP_USERNAME"),
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		FromEmail:    os.Getenv("FROM_EMAIL"),
+		FromName:     os.Getenv("FROM_NAME"),
+	}
+
 	// Initialize services
 	authService := auth.NewAuthService(db, cfg.JWTSecret, cfg.EncryptionKey)
 	domainService := domain.NewDomainService(db, uptrendsClient, site24x7Client)
 	promptService := service.NewTelegramPromptService(db)
 	telegramService := notification.NewTelegramService(telegramConfig, db, promptService)
-	monitorService := monitor.NewMonitorService(uptrendsClient, site24x7Client, domainService, telegramService)
+	emailService := notification.NewEmailService(emailConfig, db, promptService)
+	monitorService := monitor.NewMonitorService(uptrendsClient, site24x7Client, domainService, telegramService, emailService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
@@ -67,6 +78,7 @@ func main() {
 	telegramHandler := handler.NewTelegramHandler(telegramService)
 	telegramBotHandler := handler.NewTelegramBotHandler(telegramService, domainService)
 	promptHandler := handler.NewTelegramPromptHandler(promptService)
+	emailHandler := handler.NewEmailHandler(emailService)
 	// monitorHandler := handler.NewMonitorHandler(monitorService)
 
 	// Start the scheduled domain check in a goroutine
@@ -129,6 +141,16 @@ func main() {
 
 			// Add this new route for sending test messages
 			telegramRoutes.POST("/configs/:id/test", telegramHandler.SendTestMessage)
+		}
+
+		// Add email API routes
+		emailRoutes := protected.Group("/email")
+		{
+			emailRoutes.GET("/configs", emailHandler.GetEmailConfigs)
+			emailRoutes.POST("/configs", emailHandler.AddEmailConfig)
+			emailRoutes.PUT("/configs/:id", emailHandler.UpdateEmailConfig)
+			emailRoutes.DELETE("/configs/:id", emailHandler.DeleteEmailConfig)
+			emailRoutes.POST("/configs/:id/test", emailHandler.SendTestEmail)
 		}
 
 		// prompt management routes

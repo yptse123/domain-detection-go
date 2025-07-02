@@ -17,11 +17,12 @@ type MonitorService struct {
 	site24x7Client  *Site24x7Client // Add this field
 	domainService   *domain.DomainService
 	telegramService *notification.TelegramService
+	emailService    *notification.EmailService
 	regions         []string
 }
 
 // NewMonitorService creates a new monitor service
-func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7Client, domainService *domain.DomainService, telegramService *notification.TelegramService) *MonitorService {
+func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7Client, domainService *domain.DomainService, telegramService *notification.TelegramService, emailService *notification.EmailService) *MonitorService {
 	// Default regions to check
 	regions := []string{
 		"CN", // China
@@ -39,6 +40,7 @@ func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7C
 		domainService:   domainService,
 		telegramService: telegramService,
 		regions:         regions,
+		emailService:    emailService,
 	}
 }
 
@@ -299,6 +301,13 @@ func (s *MonitorService) checkAllActiveDomains() {
 					if s.telegramService != nil {
 						if err := s.telegramService.SendDomainStatusNotification(*updatedDomain, statusChanged); err != nil {
 							log.Printf("Failed to send Telegram notification for domain %s: %v", d.Name, err)
+						}
+					}
+
+					// Add email notification
+					if s.emailService != nil {
+						if err := s.emailService.SendDomainStatusNotification(*updatedDomain, statusChanged); err != nil {
+							log.Printf("Failed to send email notification for domain %s: %v", d.Name, err)
 						}
 					}
 				}
