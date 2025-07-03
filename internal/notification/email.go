@@ -554,25 +554,32 @@ func (s *EmailService) SendTestEmail(config model.EmailConfig) error {
 	}
 
 	subject := "🧪 Test Email from Domain Monitor"
+	// Format time in UTC+8
+	loc, err := time.LoadLocation(TIMEZONE_LOCATION)
+	if err != nil {
+		loc = time.FixedZone("UTC+8", 8*60*60)
+	}
+	formattedTime := time.Now().In(loc).Format("2006-01-02 15:04:05")
+
 	body := `
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Test Email</title>
+	<meta charset="UTF-8">
+	<title>Test Email</title>
 </head>
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #3498db;">🧪 Test Email</h2>
-        <p>This is a test email from your Domain Monitoring Service.</p>
-        <p>If you're receiving this email, your email notifications are configured correctly.</p>
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <p><strong>Configuration:</strong> ` + config.EmailName + `</p>
-            <p><strong>Email:</strong> ` + config.EmailAddress + `</p>
-            <p><strong>Language:</strong> ` + config.Language + `</p>
-        </div>
-        <p style="color: #666; font-size: 12px;">Sent at: ` + time.Now().Format("2006-01-02 15:04:05") + ` (UTC+8)</p>
-    </div>
+	<div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+		<h2 style="color: #3498db;">🧪 Test Email</h2>
+		<p>This is a test email from your Domain Monitoring Service.</p>
+		<p>If you're receiving this email, your email notifications are configured correctly.</p>
+		<div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+			<p><strong>Configuration:</strong> ` + config.EmailName + `</p>
+			<p><strong>Email:</strong> ` + config.EmailAddress + `</p>
+			<p><strong>Language:</strong> ` + config.Language + `</p>
+		</div>
+		<p style="color: #666; font-size: 12px;">Sent at: ` + formattedTime + ` (UTC+8)</p>
+	</div>
 </body>
 </html>`
 
