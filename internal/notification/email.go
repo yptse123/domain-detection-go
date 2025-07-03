@@ -2,7 +2,6 @@ package notification
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
 	"html/template"
 	"log"
@@ -525,9 +524,11 @@ func (s *EmailService) sendEmail(toEmail, toName, subject, body string) error {
 	from := s.config.FromEmail
 	to := []string{toEmail}
 
-	// Create message
-	msg := []byte("To: " + toEmail + "\r\n" +
+	// Create message with proper headers
+	msg := []byte("From: " + from + "\r\n" +
+		"To: " + toEmail + "\r\n" +
 		"Subject: " + subject + "\r\n" +
+		"MIME-Version: 1.0\r\n" +
 		"Content-Type: text/html; charset=UTF-8\r\n" +
 		"\r\n" +
 		body + "\r\n")
@@ -535,55 +536,11 @@ func (s *EmailService) sendEmail(toEmail, toName, subject, body string) error {
 	// SMTP authentication
 	auth := smtp.PlainAuth("", s.config.SMTPUsername, s.config.SMTPPassword, s.config.SMTPHost)
 
-	// TLS config
-	tlsconfig := &tls.Config{
-		InsecureSkipVerify: false,
-		ServerName:         s.config.SMTPHost,
-	}
-
-	// Connect to server
-	conn, err := tls.Dial("tcp", s.config.SMTPHost+":"+s.config.SMTPPort, tlsconfig)
+	// Send email using smtp.SendMail (handles STARTTLS automatically)
+	serverAddr := s.config.SMTPHost + ":" + s.config.SMTPPort
+	err := smtp.SendMail(serverAddr, auth, from, to, msg)
 	if err != nil {
-		return fmt.Errorf("failed to connect to SMTP server: %w", err)
-	}
-	defer conn.Close()
-
-	// Create SMTP client
-	client, err := smtp.NewClient(conn, s.config.SMTPHost)
-	if err != nil {
-		return fmt.Errorf("failed to create SMTP client: %w", err)
-	}
-	defer client.Quit()
-
-	// Authenticate
-	if err = client.Auth(auth); err != nil {
-		return fmt.Errorf("SMTP authentication failed: %w", err)
-	}
-
-	// Send email
-	if err = client.Mail(from); err != nil {
-		return fmt.Errorf("failed to set sender: %w", err)
-	}
-
-	for _, addr := range to {
-		if err = client.Rcpt(addr); err != nil {
-			return fmt.Errorf("failed to set recipient: %w", err)
-		}
-	}
-
-	writer, err := client.Data()
-	if err != nil {
-		return fmt.Errorf("failed to get data writer: %w", err)
-	}
-
-	_, err = writer.Write(msg)
-	if err != nil {
-		return fmt.Errorf("failed to write message: %w", err)
-	}
-
-	err = writer.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close data writer: %w", err)
+		return fmt.Errorf("failed to send email: %w", err)
 	}
 
 	log.Printf("Email sent successfully to %s", toEmail)
