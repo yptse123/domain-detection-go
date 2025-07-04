@@ -137,6 +137,7 @@ func (c *Site24x7Client) getAccessToken() (string, error) {
 	if c.accessToken != "" && time.Now().Before(c.tokenExpiry) {
 		token := c.accessToken
 		c.tokenMutex.RUnlock()
+		log.Printf("DEBUG: Using cached Site24x7 token (expires at %v)", c.tokenExpiry)
 		return token, nil
 	}
 	c.tokenMutex.RUnlock()
@@ -146,8 +147,14 @@ func (c *Site24x7Client) getAccessToken() (string, error) {
 
 	// Double-check after acquiring write lock
 	if c.accessToken != "" && time.Now().Before(c.tokenExpiry) {
+		log.Printf("DEBUG: Using cached Site24x7 token after lock (expires at %v)", c.tokenExpiry)
 		return c.accessToken, nil
 	}
+
+	log.Printf("DEBUG: Refreshing Site24x7 token...")
+	log.Printf("DEBUG: Using Client ID: %s", c.config.ClientID)
+	log.Printf("DEBUG: Using Base URL: %s", c.config.BaseURL)
+	log.Printf("DEBUG: Refresh token length: %d", len(c.config.RefreshToken))
 
 	// Refresh token
 	data := url.Values{}
@@ -156,23 +163,33 @@ func (c *Site24x7Client) getAccessToken() (string, error) {
 	data.Set("refresh_token", c.config.RefreshToken)
 	data.Set("grant_type", "refresh_token")
 
-	resp, err := c.httpClient.PostForm("https://accounts.zoho.com/oauth/v2/token", data)
+	tokenURL := "https://accounts.zoho.com/oauth/v2/token"
+	log.Printf("DEBUG: Requesting token from: %s", tokenURL)
+
+	resp, err := c.httpClient.PostForm(tokenURL, data)
 	if err != nil {
+		log.Printf("ERROR: Failed to make token request: %v", err)
 		return "", fmt.Errorf("error refreshing token: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("ERROR: Failed to read token response: %v", err)
 		return "", fmt.Errorf("error reading token response: %w", err)
 	}
 
+	log.Printf("DEBUG: Token response status: %d", resp.StatusCode)
+	log.Printf("DEBUG: Token response body: %s", string(body))
+
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("ERROR: Token refresh failed with status %d: %s", resp.StatusCode, string(body))
 		return "", fmt.Errorf("token refresh failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var tokenResp TokenResponse
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		log.Printf("ERROR: Failed to parse token response: %v", err)
 		return "", fmt.Errorf("error parsing token response: %w", err)
 	}
 
@@ -180,7 +197,10 @@ func (c *Site24x7Client) getAccessToken() (string, error) {
 	// Set expiry to 50 minutes (token expires in 60 minutes)
 	c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn-600) * time.Second)
 
-	log.Printf("Site24x7 token refreshed, expires at: %v", c.tokenExpiry)
+	log.Printf("SUCCESS: Site24x7 token refreshed successfully")
+	log.Printf("DEBUG: New token length: %d", len(c.accessToken))
+	log.Printf("DEBUG: Token expires at: %v", c.tokenExpiry)
+	log.Printf("DEBUG: API Domain: %s", tokenResp.APIDomain)
 
 	return c.accessToken, nil
 }
@@ -209,8 +229,11 @@ func getSite24x7LocationProfileID(region string) string {
 
 // CreateMonitor creates a new monitor in Site24x7
 func (c *Site24x7Client) CreateMonitor(fullURL string, name string, regions []string) (string, error) {
+	log.Printf("DEBUG: Creating Site24x7 monitor for URL: %s, Name: %s, Regions: %v", fullURL, name, regions)
+
 	token, err := c.getAccessToken()
 	if err != nil {
+		log.Printf("ERROR: Failed to get access token: %v", err)
 		return "", fmt.Errorf("failed to get access token: %w", err)
 	}
 
@@ -228,6 +251,8 @@ func (c *Site24x7Client) CreateMonitor(fullURL string, name string, regions []st
 
 	// Get the appropriate location profile ID for the user's region
 	locationProfileID := getSite24x7LocationProfileID(region)
+
+	log.Printf("DEBUG: Using region: %s, Location Profile ID: %s", region, locationProfileID)
 
 	createReq := MonitorCreateRequest{
 		DisplayName:           fmt.Sprintf("Monitor - %s", name),
@@ -248,11 +273,18 @@ func (c *Site24x7Client) CreateMonitor(fullURL string, name string, regions []st
 
 	jsonData, err := json.Marshal(createReq)
 	if err != nil {
+		log.Printf("ERROR: Failed to marshal create request: %v", err)
 		return "", fmt.Errorf("error marshaling request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://www.site24x7.com/api/monitors", bytes.NewBuffer(jsonData))
+	log.Printf("DEBUG: Create monitor request payload: %s", string(jsonData))
+
+	apiURL := "https://www.site24x7.com/api/monitors"
+	log.Printf("DEBUG: Making request to: %s", apiURL)
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
+		log.Printf("ERROR: Failed to create HTTP request: %v", err)
 		return "", fmt.Errorf("error creating request: %w", err)
 	}
 
@@ -260,34 +292,45 @@ func (c *Site24x7Client) CreateMonitor(fullURL string, name string, regions []st
 	req.Header.Set("Accept", "application/json; version=2.1")
 	req.Header.Set("Authorization", fmt.Sprintf("Zoho-oauthtoken %s", token))
 
+	log.Printf("DEBUG: Request headers: %v", req.Header)
+
 	log.Printf("Creating Site24x7 monitor for %s in region %s (profile: %s)", fullURL, region, locationProfileID)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		log.Printf("ERROR: Failed to make HTTP request: %v", err)
 		return "", fmt.Errorf("error making request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("ERROR: Failed to read response body: %v", err)
 		return "", fmt.Errorf("error reading response: %w", err)
 	}
 
+	log.Printf("DEBUG: Response status: %d", resp.StatusCode)
+	log.Printf("DEBUG: Response headers: %v", resp.Header)
+	log.Printf("DEBUG: Response body: %s", string(body))
+
 	// Site24x7 returns 201 (Created) for successful monitor creation, not 200 (OK)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		log.Printf("ERROR: API returned non-success status: %d, body: %s", resp.StatusCode, string(body))
 		return "", fmt.Errorf("API returned non-success status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	var createResp MonitorCreateResponse
 	if err := json.Unmarshal(body, &createResp); err != nil {
+		log.Printf("ERROR: Failed to parse create response: %v", err)
 		return "", fmt.Errorf("error parsing response: %w", err)
 	}
 
 	if createResp.Code != 0 {
+		log.Printf("ERROR: Site24x7 API error: Code=%d, Message=%s", createResp.Code, createResp.Message)
 		return "", fmt.Errorf("Site24x7 API error: %s", createResp.Message)
 	}
 
-	log.Printf("Created Site24x7 monitor %s for %s in region %s", createResp.Data.MonitorID, fullURL, region)
+	log.Printf("SUCCESS: Created Site24x7 monitor %s for %s in region %s", createResp.Data.MonitorID, fullURL, region)
 
 	return createResp.Data.MonitorID, nil
 }
