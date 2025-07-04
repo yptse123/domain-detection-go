@@ -189,21 +189,21 @@ func (c *Site24x7Client) getAccessToken() (string, error) {
 func getSite24x7LocationProfileID(region string) string {
 	switch region {
 	case "CN", "China":
-		return "567462000000029011"
+		return "570991000000036001"
 	case "ID", "Indonesia":
-		return "567462000000029013"
+		return "570991000000036003"
 	case "IN", "India":
-		return "567462000000029015"
+		return "570991000000036005"
 	case "JP", "Japan":
-		return "567462000000029017"
+		return "570991000000036007"
 	case "KR", "Korea":
-		return "567462000000029023"
+		return "570991000000036009"
 	case "TH", "Thailand":
-		return "567462000000029019"
+		return "570991000000036011"
 	case "VN", "Vietnam":
-		return "567462000000029021"
+		return "570991000000036013"
 	default:
-		return "567462000000029011" // Default to China
+		return "570991000000036001" // Default to China
 	}
 }
 
