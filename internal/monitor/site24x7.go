@@ -262,9 +262,9 @@ func (c *Site24x7Client) CreateMonitor(fullURL string, name string, regions []st
 		Timeout:               15,
 		HTTPMethod:            httpMethod,
 		LocationProfileID:     locationProfileID,              // Use region-specific location profile
-		NotificationProfileID: "567462000000029001",           // Default notification profile
-		ThresholdProfileID:    "567462000000029007",           // Default threshold profile
-		UserGroupIDs:          []string{"567462000000025009"}, // Default user group
+		NotificationProfileID: "570991000000036019",           // Default notification profile
+		ThresholdProfileID:    "570991000000036015",           // Default threshold profile
+		UserGroupIDs:          []string{"570991000000025009"}, // Default user group
 		UseIPv6:               false,
 		MatchCase:             false,
 		UserAgent:             "Mozilla Firefox",
