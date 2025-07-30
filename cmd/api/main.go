@@ -129,6 +129,7 @@ func main() {
 		protected.PUT("/domains/batch", domainHandler.UpdateAllDomains)
 		protected.DELETE("/domains/:id", domainHandler.DeleteDomain)
 		protected.POST("/domains/batch", domainHandler.AddBatchDomains)
+		protected.DELETE("/domains/batch", domainHandler.DeleteBatchDomains)
 		protected.DELETE("/domains", domainHandler.DeleteAllDomains)
 
 		// Set up Telegram API routes

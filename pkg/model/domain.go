@@ -116,3 +116,23 @@ func (d Domain) Available() bool {
 	// Consider successful if status is between 200-399
 	return d.LastStatus >= 200 && d.LastStatus < 400
 }
+
+// DomainBatchDeleteRequest represents a batch request to delete multiple domains
+type DomainBatchDeleteRequest struct {
+	DomainIDs []int `json:"domain_ids" binding:"required,min=1"`
+}
+
+// DomainBatchDeleteResponse represents the response for a batch domain delete operation
+type DomainBatchDeleteResponse struct {
+	Success      []DomainDeleteResult `json:"success"`
+	Failed       []DomainDeleteResult `json:"failed"`
+	DeletedCount int                  `json:"deleted_count"`
+	TotalCount   int                  `json:"total_count"`
+}
+
+// DomainDeleteResult represents the result for a single domain in batch delete operation
+type DomainDeleteResult struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Reason string `json:"reason,omitempty"` // Only present for failed deletions
+}

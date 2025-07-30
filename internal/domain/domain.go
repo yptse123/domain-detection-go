@@ -1042,3 +1042,183 @@ func (s *DomainService) GetDomainsWithoutSite24x7Monitor() ([]model.Domain, erro
 
 	return domains, nil
 }
+
+// DeleteBatchDomains deletes multiple domains by their IDs
+func (s *DomainService) DeleteBatchDomains(userID int, domainIDs []int) (*model.DomainBatchDeleteResponse, error) {
+	if len(domainIDs) == 0 {
+		return nil, errors.New("no domain IDs provided")
+	}
+
+	response := &model.DomainBatchDeleteResponse{
+		Success:      []model.DomainDeleteResult{},
+		Failed:       []model.DomainDeleteResult{},
+		DeletedCount: 0,
+		TotalCount:   len(domainIDs),
+	}
+
+	// Get all domains that belong to the user and exist in the provided IDs
+	placeholders := make([]string, len(domainIDs))
+	args := []interface{}{userID}
+	for i, id := range domainIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`
+        SELECT id, name, monitor_guid, site24x7_monitor_id
+        FROM domains 
+        WHERE user_id = $1 AND id IN (%s)
+    `, strings.Join(placeholders, ","))
+
+	var domains []struct {
+		ID                int     `db:"id"`
+		Name              string  `db:"name"`
+		MonitorGuid       *string `db:"monitor_guid"`
+		Site24x7MonitorID *string `db:"site24x7_monitor_id"`
+	}
+
+	err := s.db.Select(&domains, query, args...)
+	if err != nil {
+		log.Printf("Failed to fetch domains for batch delete: %v", err)
+		return nil, fmt.Errorf("failed to fetch domains: %w", err)
+	}
+
+	// Create a map of found domains for quick lookup
+	foundDomains := make(map[int]struct {
+		Name              string
+		MonitorGuid       *string
+		Site24x7MonitorID *string
+	})
+
+	for _, domain := range domains {
+		foundDomains[domain.ID] = struct {
+			Name              string
+			MonitorGuid       *string
+			Site24x7MonitorID *string
+		}{
+			Name:              domain.Name,
+			MonitorGuid:       domain.MonitorGuid,
+			Site24x7MonitorID: domain.Site24x7MonitorID,
+		}
+	}
+
+	// Process each requested domain ID
+	for _, domainID := range domainIDs {
+		domain, exists := foundDomains[domainID]
+		if !exists {
+			// Domain not found or doesn't belong to user
+			response.Failed = append(response.Failed, model.DomainDeleteResult{
+				ID:     domainID,
+				Name:   "",
+				Reason: "Domain not found or access denied",
+			})
+			continue
+		}
+
+		// Delete from external monitoring services first
+		var deleteErrors []string
+
+		// Delete from Uptrends if monitor GUID exists
+		if domain.MonitorGuid != nil && *domain.MonitorGuid != "" {
+			if err := s.uptrendsClient.DeleteMonitor(*domain.MonitorGuid); err != nil {
+				deleteErrors = append(deleteErrors, fmt.Sprintf("Uptrends: %v", err))
+				log.Printf("Warning: Failed to delete Uptrends monitor %s for domain %s: %v",
+					*domain.MonitorGuid, domain.Name, err)
+			}
+		}
+
+		// Delete from Site24x7 if monitor ID exists
+		if domain.Site24x7MonitorID != nil && *domain.Site24x7MonitorID != "" {
+			if err := s.site24x7Client.DeleteMonitor(*domain.Site24x7MonitorID); err != nil {
+				deleteErrors = append(deleteErrors, fmt.Sprintf("Site24x7: %v", err))
+				log.Printf("Warning: Failed to delete Site24x7 monitor %s for domain %s: %v",
+					*domain.Site24x7MonitorID, domain.Name, err)
+			}
+		}
+
+		// Delete from database (continue even if external deletions failed)
+		err := s.deleteDomainFromDB(domainID, userID)
+		if err != nil {
+			reason := fmt.Sprintf("Database deletion failed: %v", err)
+			if len(deleteErrors) > 0 {
+				reason = fmt.Sprintf("%s (External services: %s)", reason, strings.Join(deleteErrors, ", "))
+			}
+
+			response.Failed = append(response.Failed, model.DomainDeleteResult{
+				ID:     domainID,
+				Name:   domain.Name,
+				Reason: reason,
+			})
+			continue
+		}
+
+		// Success
+		result := model.DomainDeleteResult{
+			ID:   domainID,
+			Name: domain.Name,
+		}
+
+		// Add warning about external service failures if any
+		if len(deleteErrors) > 0 {
+			result.Reason = fmt.Sprintf("Warning: %s", strings.Join(deleteErrors, ", "))
+		}
+
+		response.Success = append(response.Success, result)
+		response.DeletedCount++
+	}
+
+	log.Printf("Batch delete completed for user %d: %d/%d domains deleted successfully",
+		userID, response.DeletedCount, response.TotalCount)
+
+	return response, nil
+}
+
+// deleteDomainFromDB is a helper method to delete a domain from the database
+func (s *DomainService) deleteDomainFromDB(domainID, userID int) error {
+	// Start transaction for cleanup
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Delete notification history first
+	_, err = tx.Exec(`
+        DELETE FROM notification_history 
+        WHERE domain_id = $1
+    `, domainID)
+	if err != nil {
+		return fmt.Errorf("failed to delete notification history: %w", err)
+	}
+
+	// Delete the domain
+	result, err := tx.Exec(`
+        DELETE FROM domains 
+        WHERE id = $1 AND user_id = $2
+    `, domainID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete domain: %w", err)
+	}
+
+	// Check if domain was actually deleted
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return errors.New("domain not found or access denied")
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}

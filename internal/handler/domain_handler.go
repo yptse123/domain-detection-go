@@ -395,3 +395,65 @@ func (h *DomainHandler) UpdateDomainLimit(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Domain limit updated successfully"})
 }
+
+// DeleteBatchDomains handles DELETE /api/domains/batch with domain IDs
+func (h *DomainHandler) DeleteBatchDomains(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req model.DomainBatchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate domain IDs
+	if len(req.DomainIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No domain IDs provided"})
+		return
+	}
+
+	if len(req.DomainIDs) > 100 { // Reasonable limit
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Too many domains. Maximum 100 domains per batch"})
+		return
+	}
+
+	// Validate all IDs are positive integers
+	for _, id := range req.DomainIDs {
+		if id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "All domain IDs must be positive integers"})
+			return
+		}
+	}
+
+	// Remove duplicates
+	seen := make(map[int]bool)
+	uniqueIDs := []int{}
+	for _, id := range req.DomainIDs {
+		if !seen[id] {
+			seen[id] = true
+			uniqueIDs = append(uniqueIDs, id)
+		}
+	}
+
+	// Delete domains
+	response, err := h.domainService.DeleteBatchDomains(userID, uniqueIDs)
+	if err != nil {
+		log.Printf("Failed to delete batch domains for user %d: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete domains"})
+		return
+	}
+
+	// Return appropriate status code
+	statusCode := http.StatusOK
+	if response.DeletedCount == 0 {
+		statusCode = http.StatusNotFound
+	} else if len(response.Failed) > 0 {
+		statusCode = http.StatusPartialContent // 206 for partial success
+	}
+
+	c.JSON(statusCode, response)
+}
