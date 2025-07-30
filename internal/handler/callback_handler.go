@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,22 @@ func NewCallbackHandler() *CallbackHandler {
 
 // HandleCallback logs the incoming request and returns success
 func (h *CallbackHandler) HandleCallback(c *gin.Context) {
+	// Check for secret header
+	secretHeader := c.GetHeader("X-Callback-Secret")
+	expectedSecret := os.Getenv("CALLBACK_SECRET")
+
+	// If no secret is configured, skip authentication
+	if expectedSecret == "" {
+		log.Printf("[CALLBACK] WARNING: No CALLBACK_SECRET configured, skipping authentication")
+	} else if secretHeader != expectedSecret {
+		log.Printf("[CALLBACK] UNAUTHORIZED: Invalid or missing secret header from IP: %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status":  "error",
+			"message": "Unauthorized",
+		})
+		return
+	}
+
 	// Generate simple request ID
 	requestID := time.Now().Format("20060102-150405-000")
 
