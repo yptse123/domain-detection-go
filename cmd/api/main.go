@@ -79,6 +79,7 @@ func main() {
 	telegramBotHandler := handler.NewTelegramBotHandler(telegramService, domainService)
 	promptHandler := handler.NewTelegramPromptHandler(promptService)
 	emailHandler := handler.NewEmailHandler(emailService)
+	callbackHandler := handler.NewCallbackHandler()
 	// monitorHandler := handler.NewMonitorHandler(monitorService)
 
 	// Start the scheduled domain check in a goroutine
@@ -107,6 +108,9 @@ func main() {
 
 	// Add webhook endpoint for Telegram bot (public, no auth required)
 	router.POST("/api/telegram/webhook", telegramBotHandler.WebhookHandler)
+
+	// Add simple callback endpoint (no authentication)
+	router.POST("/api/callback", callbackHandler.HandleCallback)
 
 	// Protected routes
 	protected := router.Group("/api")
