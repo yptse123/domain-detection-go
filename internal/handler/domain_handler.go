@@ -327,6 +327,45 @@ func (h *DomainHandler) DeleteDomain(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Domain deleted successfully"})
 }
 
+// DeleteAllDomains deletes all domains for the authenticated user
+func (h *DomainHandler) DeleteAllDomains(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Get current domains count for response
+	domainsResponse, err := h.domainService.GetDomains(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get current domains"})
+		return
+	}
+
+	domainsCount := len(domainsResponse.Domains)
+
+	if domainsCount == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"message":       "No domains to delete",
+			"deleted_count": 0,
+		})
+		return
+	}
+
+	// Delete all domains
+	err = h.domainService.DeleteAllDomains(userID)
+	if err != nil {
+		log.Printf("Failed to delete all domains for user %d: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete domains"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":       fmt.Sprintf("Successfully deleted all %d domains", domainsCount),
+		"deleted_count": domainsCount,
+	})
+}
+
 // UpdateDomainLimit handles PUT /api/settings/domain-limit
 func (h *DomainHandler) UpdateDomainLimit(c *gin.Context) {
 	// Admin only endpoint - check for admin role if you have it

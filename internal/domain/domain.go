@@ -769,6 +769,80 @@ func (s *DomainService) DeleteDomain(userID, domainID int) error {
 	return nil
 }
 
+// DeleteAllDomains deletes all domains for a user
+func (s *DomainService) DeleteAllDomains(userID int) error {
+	// Get all domains for the user first (for cleanup)
+	domains, err := s.GetDomains(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get domains for cleanup: %w", err)
+	}
+
+	// Start transaction
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Delete from external monitoring services
+	for _, domain := range domains.Domains {
+		// Delete from Uptrends if monitor ID exists
+		if domain.GetMonitorGuid() != "" {
+			if deleteErr := s.uptrendsClient.DeleteMonitor(domain.GetMonitorGuid()); deleteErr != nil {
+				log.Printf("Warning: Failed to delete Uptrends monitor %s: %v", domain.GetMonitorGuid(), deleteErr)
+				// Continue with deletion even if external service fails
+			}
+		}
+
+		// Delete from Site24x7 if monitor ID exists
+		if domain.GetSite24x7MonitorID() != "" {
+			if deleteErr := s.site24x7Client.DeleteMonitor(domain.GetSite24x7MonitorID()); deleteErr != nil {
+				log.Printf("Warning: Failed to delete Site24x7 monitor %s: %v", domain.GetSite24x7MonitorID(), deleteErr)
+				// Continue with deletion even if external service fails
+			}
+		}
+	}
+
+	// Delete all notification history for user's domains
+	_, err = tx.Exec(`
+        DELETE FROM notification_history 
+        WHERE domain_id IN (
+            SELECT id FROM domains WHERE user_id = $1
+        )
+    `, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete notification history: %w", err)
+	}
+
+	// Delete all domains for the user
+	result, err := tx.Exec(`
+        DELETE FROM domains 
+        WHERE user_id = $1
+    `, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete domains: %w", err)
+	}
+
+	// Check how many domains were deleted
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("Successfully deleted %d domains for user %d", rowsAffected, userID)
+	return nil
+}
+
 // UpdateDomainLimit updates the domain limit for a user
 func (s *DomainService) UpdateDomainLimit(userID int, limit int) error {
 	if limit < 1 {
