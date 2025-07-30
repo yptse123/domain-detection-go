@@ -14,6 +14,7 @@ type Domain struct {
 	Region            string    `json:"region" db:"region"`     // Region for this domain
 	MonitorGuid       *string   `json:"monitor_guid" db:"monitor_guid"`
 	Site24x7MonitorID *string   `json:"site24x7_monitor_id" db:"site24x7_monitor_id"` // Add this field
+	IsDeepCheck       bool      `json:"is_deep_check" db:"is_deep_check"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 	LastStatus        int       `json:"last_status" db:"last_status"`
@@ -41,9 +42,10 @@ func (d Domain) GetSite24x7MonitorID() string {
 
 // DomainAddRequest represents the request to add a new domain
 type DomainAddRequest struct {
-	Name     string `json:"name" binding:"required"`
-	Interval int    `json:"interval"`                  // If not provided, default will be used
-	Region   string `json:"region" binding:"required"` // NEW: Required region field
+	Name        string `json:"name" binding:"required"`
+	Interval    int    `json:"interval"`                  // If not provided, default will be used
+	Region      string `json:"region" binding:"required"` // NEW: Required region field
+	IsDeepCheck bool   `json:"is_deep_check"`
 }
 
 // DomainListResponse represents the response for domain listing
@@ -65,8 +67,9 @@ type DomainStatusResponse struct {
 
 // DomainBatchItem represents a single domain in a batch request
 type DomainBatchItem struct {
-	Name   string `json:"name" binding:"required"`
-	Region string `json:"region" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Region      string `json:"region" binding:"required"`
+	IsDeepCheck bool   `json:"is_deep_check"`
 }
 
 // DomainBatchAddRequest represents a batch request to add multiple domains
@@ -92,9 +95,10 @@ type DomainAddResult struct {
 
 // DomainUpdateRequest represents the request to update domain settings
 type DomainUpdateRequest struct {
-	Active   *bool   `json:"active"`
-	Interval *int    `json:"interval"` // Interval in minutes
-	Region   *string `json:"region"`   // NEW: Optional region field for updates
+	Active      *bool   `json:"active"`
+	Interval    *int    `json:"interval"` // Interval in minutes
+	Region      *string `json:"region"`   // NEW: Optional region field for updates
+	IsDeepCheck *bool   `json:"is_deep_check"`
 }
 
 // DomainWithRegion extends Domain with user region info

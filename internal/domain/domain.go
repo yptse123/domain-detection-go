@@ -151,13 +151,16 @@ func (s *DomainService) AddDomain(userID int, req model.DomainAddRequest) (int, 
 		return 0, errors.New("interval must be 10, 20, 30, 60 or 120 minutes")
 	}
 
-	// Insert the domain with the region specified in the request
+	// Insert the domain with the region and is_deep_check specified in the request
 	var domainID int
+	if !req.IsDeepCheck {
+		req.IsDeepCheck = false // Ensure it's set to false if not specified
+	}
 	err = s.db.QueryRow(`
-        INSERT INTO domains (user_id, name, interval, monitor_guid, active, region, created_at, updated_at)
-        VALUES ($1, $2, $3, '', true, $4, $5, $5)
+        INSERT INTO domains (user_id, name, interval, monitor_guid, active, region, is_deep_check, created_at, updated_at)
+        VALUES ($1, $2, $3, '', true, $4, $5, $6, $6)
         RETURNING id
-    `, userID, fullURL, interval, req.Region, time.Now()).Scan(&domainID)
+    `, userID, fullURL, interval, req.Region, req.IsDeepCheck, time.Now()).Scan(&domainID)
 
 	if err != nil {
 		return 0, err
@@ -334,11 +337,14 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 
 		// Insert the domain with the per-domain region
 		var domainID int
+		if !domainItem.IsDeepCheck {
+			domainItem.IsDeepCheck = false // Ensure it's set to false if not specified
+		}
 		err = s.db.QueryRow(`
-            INSERT INTO domains (user_id, name, interval, monitor_guid, active, region, created_at, updated_at)
-            VALUES ($1, $2, $3, '', true, $4, $5, $5)
-            RETURNING id
-        `, userID, fullURL, interval, domainItem.Region, time.Now()).Scan(&domainID)
+			INSERT INTO domains (user_id, name, interval, monitor_guid, active, region, is_deep_check, created_at, updated_at)
+			VALUES ($1, $2, $3, '', true, $4, $5, $6, $6)
+			RETURNING id
+		`, userID, fullURL, interval, domainItem.Region, domainItem.IsDeepCheck, time.Now()).Scan(&domainID)
 
 		if err != nil {
 			response.Failed = append(response.Failed, model.DomainAddResult{
@@ -462,8 +468,8 @@ func (s *DomainService) GetDomain(domainID, userID int) (*model.Domain, error) {
 	var domain model.Domain
 	err := s.db.Get(&domain, `
         SELECT id, user_id, name, active, interval, region, last_status, error_code,
-               total_time, error_description, monitor_guid, last_check, 
-               created_at, updated_at
+               total_time, error_description, monitor_guid, site24x7_monitor_id, 
+               is_deep_check, last_check, created_at, updated_at
         FROM domains
         WHERE id = $1 AND user_id = $2
     `, domainID, userID)
@@ -510,6 +516,12 @@ func (s *DomainService) UpdateDomain(domainID, userID int, req model.DomainUpdat
 
 		query += fmt.Sprintf(", interval = $%d", paramIndex)
 		params = append(params, *req.Interval)
+		paramIndex++
+	}
+
+	if req.IsDeepCheck != nil {
+		query += fmt.Sprintf(", is_deep_check = $%d", paramIndex)
+		params = append(params, *req.IsDeepCheck)
 		paramIndex++
 	}
 
@@ -596,7 +608,8 @@ func (s *DomainService) GetDomains(userID int) (model.DomainListResponse, error)
             d.monitor_guid,
             d.site24x7_monitor_id,
             d.interval,
-            d.total_time
+            d.total_time,
+            COALESCE(d.is_deep_check, false) AS is_deep_check
         FROM domains d
         WHERE d.user_id = $1
         ORDER BY d.created_at DESC
@@ -632,13 +645,11 @@ func (s *DomainService) GetAllActiveDomainsWithMonitors() ([]model.Domain, error
 	query := `
         SELECT id, user_id, name, active, interval, monitor_guid, site24x7_monitor_id, 
                last_status, error_code, total_time, error_description, last_check, 
-               created_at, updated_at, region
+               created_at, updated_at, region, COALESCE(is_deep_check, false) AS is_deep_check
         FROM domains 
         WHERE active = true
-        AND (
-            (monitor_guid IS NOT NULL AND monitor_guid != '') 
-            OR (site24x7_monitor_id IS NOT NULL AND site24x7_monitor_id != '')
-        )
+        AND (monitor_guid IS NOT NULL AND monitor_guid != '') 
+        OR (site24x7_monitor_id IS NOT NULL AND site24x7_monitor_id != '')
     `
 
 	err := s.db.Select(&domains, query)
@@ -657,10 +668,10 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 	var query string
 
 	if req.Region != nil && *req.Region != "" {
-		query = "SELECT id, name, monitor_guid, site24x7_monitor_id, region FROM domains WHERE user_id = $1 AND region = $2"
+		query = "SELECT id, name, monitor_guid, site24x7_monitor_id, region, COALESCE(is_deep_check, false) AS is_deep_check FROM domains WHERE user_id = $1 AND region = $2"
 		params = []interface{}{userID, *req.Region}
 	} else {
-		query = "SELECT id, name, monitor_guid, site24x7_monitor_id, region FROM domains WHERE user_id = $1"
+		query = "SELECT id, name, monitor_guid, site24x7_monitor_id, region, COALESCE(is_deep_check, false) AS is_deep_check FROM domains WHERE user_id = $1"
 		params = []interface{}{userID}
 	}
 
@@ -694,6 +705,12 @@ func (s *DomainService) UpdateAllUserDomains(userID int, req model.DomainUpdateR
 
 		updateQuery += fmt.Sprintf(", interval = $%d", paramIndex)
 		updateParams = append(updateParams, *req.Interval)
+		paramIndex++
+	}
+
+	if req.IsDeepCheck != nil {
+		updateQuery += fmt.Sprintf(", is_deep_check = $%d", paramIndex)
+		updateParams = append(updateParams, *req.IsDeepCheck)
 		paramIndex++
 	}
 
@@ -865,7 +882,8 @@ func (s *DomainService) GetAllActiveDomains() ([]model.Domain, error) {
 	var domains []model.Domain
 
 	query := `
-        SELECT id, user_id, name, active, interval, last_status, last_check, created_at, updated_at
+        SELECT id, user_id, name, active, interval, last_status, last_check, 
+               created_at, updated_at, region, COALESCE(is_deep_check, false) AS is_deep_check
         FROM domains
         WHERE active = true
     `
@@ -923,12 +941,12 @@ func (s *DomainService) GetAllActiveDomainsWithUserRegions() ([]model.DomainWith
 func (s *DomainService) GetAllDomainsWithMonitors() ([]model.Domain, error) {
 	var domains []model.Domain
 
-	// Query to get all domains with non-null monitor GUIDs or Site24x7 IDs
 	query := `
-        SELECT id, user_id, name, active, interval, monitor_guid, site24x7_monitor_id, 
-               last_status, last_check, created_at, updated_at, region
+        SELECT id, user_id, name, active, interval, monitor_guid, site24x7_monitor_id,
+               last_status, error_code, total_time, error_description, last_check,
+               created_at, updated_at, region, COALESCE(is_deep_check, false) AS is_deep_check
         FROM domains 
-        WHERE (monitor_guid IS NOT NULL AND monitor_guid != '')
+        WHERE (monitor_guid IS NOT NULL AND monitor_guid != '') 
            OR (site24x7_monitor_id IS NOT NULL AND site24x7_monitor_id != '')
     `
 
