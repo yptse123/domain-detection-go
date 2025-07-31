@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strings"
 	"time"
 
+	"domain-detection-go/internal/deepcheck"
 	"domain-detection-go/internal/domain"
 	"domain-detection-go/internal/notification"
 	"domain-detection-go/pkg/model"
@@ -14,7 +16,8 @@ import (
 // MonitorService manages domain monitoring operations
 type MonitorService struct {
 	uptrendsClient  *UptrendsClient
-	site24x7Client  *Site24x7Client // Add this field
+	site24x7Client  *Site24x7Client
+	deepCheckClient *deepcheck.DeepCheckClient
 	domainService   *domain.DomainService
 	telegramService *notification.TelegramService
 	emailService    *notification.EmailService
@@ -37,6 +40,7 @@ func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7C
 	return &MonitorService{
 		uptrendsClient:  uptrendsClient,
 		site24x7Client:  site24x7Client,
+		deepCheckClient: deepcheck.NewDeepCheckClient(),
 		domainService:   domainService,
 		telegramService: telegramService,
 		regions:         regions,
@@ -310,10 +314,52 @@ func (s *MonitorService) checkAllActiveDomains() {
 							log.Printf("Failed to send email notification for domain %s: %v", d.Name, err)
 						}
 					}
+
+					// Trigger deep check for CN region domains with is_deep_check enabled
+					if s.shouldTriggerDeepCheck(*updatedDomain, !currentAvailable) {
+						go s.triggerDeepCheck(*updatedDomain)
+					}
 				}
 			}
 		}(domain)
 	}
+}
+
+// shouldTriggerDeepCheck determines if a deep check should be triggered
+func (s *MonitorService) shouldTriggerDeepCheck(domain model.Domain, isDown bool) bool {
+	// Only trigger deep check if:
+	// 1. Domain is in CN region
+	// 2. is_deep_check is enabled
+	// 3. Domain is currently down
+	return strings.ToUpper(domain.Region) == "CN" &&
+		domain.IsDeepCheck &&
+		isDown
+}
+
+// triggerDeepCheck initiates a deep check for the domain
+func (s *MonitorService) triggerDeepCheck(domain model.Domain) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[DEEP-CHECK] Recovered from panic while triggering deep check for domain %s: %v", domain.Name, r)
+		}
+	}()
+
+	if s.deepCheckClient == nil {
+		log.Printf("[DEEP-CHECK] WARNING: Deep check client not available for domain %s", domain.Name)
+		return
+	}
+
+	log.Printf("[DEEP-CHECK] Triggering deep check for CN domain %s (ID: %d)", domain.Name, domain.ID)
+
+	// Call the deep check API
+	response, err := s.deepCheckClient.RequestDeepCheck(domain.Name)
+	if err != nil {
+		log.Printf("[DEEP-CHECK] ERROR: Failed to request deep check for domain %s: %v", domain.Name, err)
+		return
+	}
+
+	log.Printf("[DEEP-CHECK] SUCCESS: Deep check initiated for domain %s - OrderID: %s",
+		domain.Name, response.OrderID)
 }
 
 // RunScheduledChecks performs periodic checks on all active domains
@@ -443,12 +489,6 @@ func (s *MonitorService) SyncMonitorStatus() {
 // 	}, nil
 // }
 
-// Close cleans up resources
-func (s *MonitorService) Close() {
-	s.uptrendsClient.Close()
-	s.site24x7Client.Close() // Add this
-}
-
 // isDomainDueForCheck determines if a domain is due for a check based on its interval
 func isDomainDueForCheck(domain model.Domain, now time.Time) bool {
 	// If domain has never been checked, it's due for a check
@@ -461,4 +501,13 @@ func isDomainDueForCheck(domain model.Domain, now time.Time) bool {
 
 	// If the next check time has passed, the domain is due for a check
 	return now.After(nextCheckTime) || now.Equal(nextCheckTime)
+}
+
+// Close cleans up resources
+func (s *MonitorService) Close() {
+	s.uptrendsClient.Close()
+	s.site24x7Client.Close()
+	if s.deepCheckClient != nil {
+		s.deepCheckClient.Close() // Add this
+	}
 }
