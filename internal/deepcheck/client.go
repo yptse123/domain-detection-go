@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -28,11 +29,21 @@ type DeepCheckResponse struct {
 
 // NewDeepCheckClient creates a new deep check client
 func NewDeepCheckClient() *DeepCheckClient {
+	// Get base URL from environment variable
+	baseURL := os.Getenv("DEEP_CHECK_BASE_URL")
+	if baseURL == "" {
+		// Fallback to default URL if not configured
+		baseURL = "https://itdog-hq-public.passgfw-global-mixed-uat-eks.y8schwifty.app"
+		log.Printf("[DEEP-CHECK] WARNING: DEEP_CHECK_BASE_URL not configured, using default: %s", baseURL)
+	} else {
+		log.Printf("[DEEP-CHECK] Using configured base URL: %s", baseURL)
+	}
+
 	return &DeepCheckClient{
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		baseURL: "https://itdog-hq-public.passgfw-global-mixed-uat-eks.y8schwifty.app",
+		baseURL: baseURL,
 	}
 }
 
