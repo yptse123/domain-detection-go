@@ -337,11 +337,9 @@ func (s *DomainService) AddBatchDomains(userID int, req model.DomainBatchAddRequ
 
 		// Insert the domain with the per-domain region
 		var domainID int
-		log.Printf("Adding domain is_deep_check: %v", domainItem.IsDeepCheck)
 		if !domainItem.IsDeepCheck {
 			domainItem.IsDeepCheck = false // Ensure it's set to false if not specified
 		}
-		log.Printf("Adding domain is_deep_check: %v", domainItem.IsDeepCheck)
 		err = s.db.QueryRow(`
 			INSERT INTO domains (user_id, name, interval, monitor_guid, active, region, is_deep_check, created_at, updated_at)
 			VALUES ($1, $2, $3, '', true, $4, $5, $6, $6)

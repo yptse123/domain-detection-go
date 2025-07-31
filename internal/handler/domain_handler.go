@@ -189,8 +189,9 @@ func (h *DomainHandler) AddBatchDomains(c *gin.Context) {
 		if !uniqueDomains[normalizedKey] {
 			uniqueDomains[normalizedKey] = true
 			filteredDomains = append(filteredDomains, model.DomainBatchItem{
-				Name:   domainName,
-				Region: domainItem.Region,
+				Name:        domainName,
+				Region:      domainItem.Region,
+				IsDeepCheck: domainItem.IsDeepCheck,
 			})
 		}
 	}
