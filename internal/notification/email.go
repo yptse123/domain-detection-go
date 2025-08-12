@@ -610,7 +610,7 @@ func (s *EmailService) SendCustomHTMLMessage(userID int, subject, htmlBody strin
 
 		log.Printf("Sending custom HTML email to %s for user %d", config.EmailAddress, userID)
 
-		if err := s.sendHTMLEmail(config.EmailAddress, subject); err != nil {
+		if err := s.sendEmail(config.EmailAddress, subject, htmlBody); err != nil {
 			log.Printf("Failed to send custom HTML email to %s: %v", config.EmailAddress, err)
 			lastError = err
 			continue
@@ -633,9 +633,9 @@ func (s *EmailService) SendCustomHTMLMessage(userID int, subject, htmlBody strin
 }
 
 // sendHTMLEmail sends an HTML email
-func (s *EmailService) sendHTMLEmail(to, subject string) error {
-	// Implementation depends on your email service
-	// This is a placeholder
-	log.Printf("Sending HTML email to %s with subject: %s", to, subject)
-	return nil
-}
+// func (s *EmailService) sendHTMLEmail(to, subject string) error {
+// 	// Implementation depends on your email service
+// 	// This is a placeholder
+// 	log.Printf("Sending HTML email to %s with subject: %s", to, subject)
+// 	return nil
+// }
