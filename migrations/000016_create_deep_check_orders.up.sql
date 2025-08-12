@@ -8,13 +8,12 @@ CREATE TABLE deep_check_orders (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     completed_at TIMESTAMP WITH TIME ZONE,
     callback_received BOOLEAN DEFAULT false,
-    callback_data JSONB,
-    INDEX(order_id),
-    INDEX(user_id),
-    INDEX(domain_id),
-    INDEX(status)
+    callback_data JSONB
 );
 
 CREATE INDEX idx_deep_check_orders_order_id ON deep_check_orders(order_id);
+CREATE INDEX idx_deep_check_orders_user_id ON deep_check_orders(user_id);
+CREATE INDEX idx_deep_check_orders_domain_id ON deep_check_orders(domain_id);
 CREATE INDEX idx_deep_check_orders_user_domain ON deep_check_orders(user_id, domain_id);
 CREATE INDEX idx_deep_check_orders_status ON deep_check_orders(status);
+CREATE INDEX idx_deep_check_orders_created_at ON deep_check_orders(created_at);
