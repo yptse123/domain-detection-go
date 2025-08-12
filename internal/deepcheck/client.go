@@ -173,13 +173,36 @@ func (r *DeepCheckRecord) GetResponseTimeMs() int {
 
 // IsHealthy returns true if the record indicates a healthy response
 func (r *DeepCheckRecord) IsHealthy() bool {
-	return r.Type == "success" && (r.HTTPCode == 0 || (r.HTTPCode >= 200 && r.HTTPCode < 400))
+	// If type is not success, it's definitely not healthy
+	if r.Type != "success" {
+		return false
+	}
+
+	// Get response time in milliseconds
+	responseTimeMs := r.GetResponseTimeMs()
+
+	// If HTTP code is 0, check response time
+	if r.HTTPCode == 0 {
+		// Response time > 10 seconds (10000ms) indicates timeout/failure
+		return responseTimeMs > 0 && responseTimeMs <= 10000
+	}
+
+	// For non-zero HTTP codes, check if it's in success range
+	return r.HTTPCode >= 200 && r.HTTPCode < 400
 }
 
 // GetStatusDescription returns a description of the status
 func (r *DeepCheckRecord) GetStatusDescription() string {
-	if r.HTTPCode == 0 && r.Type == "success" {
-		return "連線正常"
+	responseTimeMs := r.GetResponseTimeMs()
+
+	if r.HTTPCode == 0 {
+		if r.Type == "success" {
+			if responseTimeMs > 10000 {
+				return "連線超時"
+			}
+			return "連線正常"
+		}
+		return "無回應"
 	}
 
 	switch r.HTTPCode {
@@ -197,8 +220,6 @@ func (r *DeepCheckRecord) GetStatusDescription() string {
 		return "服務不可用"
 	case 504:
 		return "閘道逾時"
-	case 0:
-		return "無回應"
 	default:
 		if r.HTTPCode >= 400 && r.HTTPCode < 500 {
 			return "客戶端錯誤"
@@ -229,13 +250,14 @@ func (req *DeepCheckCallbackRequest) AnalyzeResults(targetDomain string) *DeepCh
 	summary.SuccessRate = float64(successCount) / float64(summary.TotalNodes) * 100
 
 	// Determine status
-	if successCount == summary.TotalNodes {
+	switch successCount {
+	case summary.TotalNodes:
 		summary.Status = "全部正常"
 		summary.StatusEmoji = "✅"
-	} else if successCount == 0 {
+	case 0:
 		summary.Status = "全部異常"
 		summary.StatusEmoji = "🔴"
-	} else {
+	default:
 		summary.Status = "部分異常"
 		summary.StatusEmoji = "🟡"
 	}
@@ -287,41 +309,19 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain string) 
 
 // formatAllNormalMessages formats messages for all normal status
 func (req *DeepCheckCallbackRequest) formatAllNormalMessages(maxLength int) []string {
-	var messages []string
+	tableData := req.createTableDataForNormalResults()
 
-	var message strings.Builder
-	message.WriteString("🟢 **全部節點連線正常**\n\n")
-	message.WriteString("**詳細結果**：\n")
-	message.WriteString("```\n")
-	message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
-	message.WriteString("---------|---------|-------|---------|-------\n")
-
-	baseContent := message.String()
-	currentMessage := baseContent
-
-	for _, record := range req.Records {
-		city := req.extractCityName(record)
-		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
-			record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
-
-		// Check if adding this record would exceed the limit
-		if len(currentMessage)+len(recordLine)+3 > maxLength { // +3 for closing ```
-			// Close current message and start new one
-			currentMessage += "```"
-			messages = append(messages, currentMessage)
-
-			// Start new message
-			currentMessage = "**詳細結果 (續)**：\n```\n"
-			currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
-			currentMessage += "---------|---------|-------|---------|-------\n"
-		}
-
-		currentMessage += recordLine
+	if len(tableData.Rows) == 0 {
+		return []string{"🟢 **全部節點連線正常**\n\n沒有正常節點記錄。"}
 	}
 
-	// Close the last message
-	currentMessage += "```"
-	messages = append(messages, currentMessage)
+	prefix := "🟢 **全部節點連線正常**\n\n**詳細結果**：\n"
+	messages := req.splitTableByMessageLength(tableData, maxLength, prefix)
+
+	// Update continuation messages
+	for i := 1; i < len(messages); i++ {
+		messages[i] = strings.Replace(messages[i], prefix, "**詳細結果 (續)**：\n", 1)
+	}
 
 	return messages
 }
@@ -330,118 +330,52 @@ func (req *DeepCheckCallbackRequest) formatAllNormalMessages(maxLength int) []st
 func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int) []string {
 	var messages []string
 
-	// Message for error regions
-	var errorMessage strings.Builder
-	errorMessage.WriteString("🟡 **部分異常**：部份地區訪問緩慢或跳轉多\n\n")
-	errorMessage.WriteString("**異常地區列表**：\n")
-	errorMessage.WriteString("```\n")
-	errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n")
-	errorMessage.WriteString("---------|---------|-------|---------|-------|--------\n")
+	// Error regions table
+	errorTableData := req.createTableDataForErrorResults()
+	if len(errorTableData.Rows) > 0 {
+		errorPrefix := "🟡 **部分異常**：部份地區訪問緩慢或跳轉多\n\n**異常地區列表**：\n"
+		errorMessages := req.splitTableByMessageLength(errorTableData, maxLength, errorPrefix)
 
-	baseErrorContent := errorMessage.String()
-	currentErrorMessage := baseErrorContent
-
-	// Add error records
-	for _, record := range req.Records {
-		if !record.IsHealthy() {
-			city := req.extractCityName(record)
-			responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
-			if record.HTTPCode == 0 {
-				responseTime = "–"
-			}
-			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
-				record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
-
-			if len(currentErrorMessage)+len(recordLine)+3 > maxLength {
-				currentErrorMessage += "```"
-				messages = append(messages, currentErrorMessage)
-
-				currentErrorMessage = "**異常地區列表 (續)**：\n```\n"
-				currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n"
-				currentErrorMessage += "---------|---------|-------|---------|-------|--------\n"
-			}
-
-			currentErrorMessage += recordLine
+		// Update continuation messages
+		for i := 1; i < len(errorMessages); i++ {
+			errorMessages[i] = strings.Replace(errorMessages[i], errorPrefix, "**異常地區列表 (續)**：\n", 1)
 		}
+
+		messages = append(messages, errorMessages...)
 	}
 
-	currentErrorMessage += "```"
-	messages = append(messages, currentErrorMessage)
+	// Normal regions table
+	normalTableData := req.createTableDataForNormalResults()
+	if len(normalTableData.Rows) > 0 {
+		normalPrefix := "**正常地區**：\n"
+		normalMessages := req.splitTableByMessageLength(normalTableData, maxLength, normalPrefix)
 
-	// Message for normal regions
-	var normalMessage strings.Builder
-	normalMessage.WriteString("**正常地區**：\n")
-	normalMessage.WriteString("```\n")
-	normalMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
-	normalMessage.WriteString("---------|---------|-------|---------|-------\n")
-
-	baseNormalContent := normalMessage.String()
-	currentNormalMessage := baseNormalContent
-
-	// Add normal records
-	for _, record := range req.Records {
-		if record.IsHealthy() {
-			city := req.extractCityName(record)
-			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
-				record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
-
-			if len(currentNormalMessage)+len(recordLine)+3 > maxLength {
-				currentNormalMessage += "```"
-				messages = append(messages, currentNormalMessage)
-
-				currentNormalMessage = "**正常地區 (續)**：\n```\n"
-				currentNormalMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
-				currentNormalMessage += "---------|---------|-------|---------|-------\n"
-			}
-
-			currentNormalMessage += recordLine
+		// Update continuation messages
+		for i := 1; i < len(normalMessages); i++ {
+			normalMessages[i] = strings.Replace(normalMessages[i], normalPrefix, "**正常地區 (續)**：\n", 1)
 		}
-	}
 
-	currentNormalMessage += "```"
-	messages = append(messages, currentNormalMessage)
+		messages = append(messages, normalMessages...)
+	}
 
 	return messages
 }
 
 // formatAllFailureMessages formats messages for all failure status
 func (req *DeepCheckCallbackRequest) formatAllFailureMessages(maxLength int) []string {
-	var messages []string
+	tableData := req.createTableDataForAllResults()
 
-	var message strings.Builder
-	message.WriteString("🔴 **所有地區無法訪問域名**\n\n")
-	message.WriteString("🚨 **全部異常**\n\n")
-	message.WriteString("**詳細錯誤資訊**：\n")
-	message.WriteString("```\n")
-	message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n")
-	message.WriteString("---------|---------|-------|---------|-------|----------\n")
-
-	baseContent := message.String()
-	currentMessage := baseContent
-
-	for _, record := range req.Records {
-		city := req.extractCityName(record)
-		responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
-		if record.HTTPCode == 0 {
-			responseTime = "–"
-		}
-		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
-			record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
-
-		if len(currentMessage)+len(recordLine)+3 > maxLength {
-			currentMessage += "```"
-			messages = append(messages, currentMessage)
-
-			currentMessage = "**詳細錯誤資訊 (續)**：\n```\n"
-			currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n"
-			currentMessage += "---------|---------|-------|---------|-------|----------\n"
-		}
-
-		currentMessage += recordLine
+	if len(tableData.Rows) == 0 {
+		return []string{"🔴 **所有地區無法訪問域名**\n\n🚨 **全部異常**\n\n沒有檢測記錄。"}
 	}
 
-	currentMessage += "```"
-	messages = append(messages, currentMessage)
+	prefix := "🔴 **所有地區無法訪問域名**\n\n🚨 **全部異常**\n\n**詳細錯誤資訊**：\n"
+	messages := req.splitTableByMessageLength(tableData, maxLength, prefix)
+
+	// Update continuation messages
+	for i := 1; i < len(messages); i++ {
+		messages[i] = strings.Replace(messages[i], prefix, "**詳細錯誤資訊 (續)**：\n", 1)
+	}
 
 	return messages
 }
@@ -557,4 +491,210 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain string) (st
 	log.Printf("[DEEP-CHECK] EMAIL HTML BODY LENGTH: %d characters", len(htmlBody))
 
 	return subject, htmlBody
+}
+
+// TableData represents table structure for formatting
+type TableData struct {
+	Headers []string
+	Rows    [][]string
+}
+
+// createBoxDrawingTable creates a box drawing table from table data
+func (req *DeepCheckCallbackRequest) createBoxDrawingTable(data *TableData) string {
+	if len(data.Headers) == 0 || len(data.Rows) == 0 {
+		return ""
+	}
+
+	// Calculate column widths
+	columnWidths := make([]int, len(data.Headers))
+	for i, header := range data.Headers {
+		columnWidths[i] = len(header)
+	}
+
+	for _, row := range data.Rows {
+		for i, cell := range row {
+			if i < len(columnWidths) && len(cell) > columnWidths[i] {
+				columnWidths[i] = len(cell)
+			}
+		}
+	}
+
+	var result strings.Builder
+
+	// Top line
+	result.WriteString("┌")
+	for i, width := range columnWidths {
+		result.WriteString(strings.Repeat("─", width+2))
+		if i < len(columnWidths)-1 {
+			result.WriteString("┬")
+		}
+	}
+	result.WriteString("┐\n")
+
+	// Header row
+	result.WriteString("│")
+	for i, header := range data.Headers {
+		result.WriteString(fmt.Sprintf(" %-*s │", columnWidths[i], header))
+	}
+	result.WriteString("\n")
+
+	// Separator line
+	result.WriteString("├")
+	for i, width := range columnWidths {
+		result.WriteString(strings.Repeat("─", width+2))
+		if i < len(columnWidths)-1 {
+			result.WriteString("┼")
+		}
+	}
+	result.WriteString("┤\n")
+
+	// Data rows
+	for _, row := range data.Rows {
+		result.WriteString("│")
+		for i, cell := range row {
+			if i < len(columnWidths) {
+				result.WriteString(fmt.Sprintf(" %-*s │", columnWidths[i], cell))
+			}
+		}
+		result.WriteString("\n")
+	}
+
+	// Bottom line
+	result.WriteString("└")
+	for i, width := range columnWidths {
+		result.WriteString(strings.Repeat("─", width+2))
+		if i < len(columnWidths)-1 {
+			result.WriteString("┴")
+		}
+	}
+	result.WriteString("┘")
+
+	return result.String()
+}
+
+// createTableDataForNormalResults creates table data for normal results
+func (req *DeepCheckCallbackRequest) createTableDataForNormalResults() *TableData {
+	headers := []string{"省份", "城市", "電訊商", "響應時間", "狀態碼"}
+	var rows [][]string
+
+	for _, record := range req.Records {
+		if record.IsHealthy() {
+			city := req.extractCityName(record)
+			responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
+			if record.HTTPCode == 0 && record.GetResponseTimeMs() > 10000 {
+				responseTime = "超時"
+			}
+
+			rows = append(rows, []string{
+				record.RegionName,
+				city,
+				record.ISP,
+				responseTime,
+				fmt.Sprintf("%d", record.HTTPCode),
+			})
+		}
+	}
+
+	return &TableData{Headers: headers, Rows: rows}
+}
+
+// createTableDataForErrorResults creates table data for error results
+func (req *DeepCheckCallbackRequest) createTableDataForErrorResults() *TableData {
+	headers := []string{"省份", "城市", "電訊商", "響應時間", "狀態碼", "描述"}
+	var rows [][]string
+
+	for _, record := range req.Records {
+		if !record.IsHealthy() {
+			city := req.extractCityName(record)
+			responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
+			if record.HTTPCode == 0 || record.GetResponseTimeMs() > 10000 {
+				responseTime = "超時"
+			}
+
+			rows = append(rows, []string{
+				record.RegionName,
+				city,
+				record.ISP,
+				responseTime,
+				fmt.Sprintf("%d", record.HTTPCode),
+				record.GetStatusDescription(),
+			})
+		}
+	}
+
+	return &TableData{Headers: headers, Rows: rows}
+}
+
+// createTableDataForAllResults creates table data for all results
+func (req *DeepCheckCallbackRequest) createTableDataForAllResults() *TableData {
+	headers := []string{"省份", "城市", "電訊商", "響應時間", "狀態碼", "問題描述"}
+	var rows [][]string
+
+	for _, record := range req.Records {
+		city := req.extractCityName(record)
+		responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
+		if record.HTTPCode == 0 || record.GetResponseTimeMs() > 10000 {
+			responseTime = "超時"
+		}
+
+		rows = append(rows, []string{
+			record.RegionName,
+			city,
+			record.ISP,
+			responseTime,
+			fmt.Sprintf("%d", record.HTTPCode),
+			record.GetStatusDescription(),
+		})
+	}
+
+	return &TableData{Headers: headers, Rows: rows}
+}
+
+// splitTableByMessageLength splits table data into chunks that fit within message length
+func (req *DeepCheckCallbackRequest) splitTableByMessageLength(data *TableData, maxLength int, prefix string) []string {
+	if len(data.Rows) == 0 {
+		return []string{}
+	}
+
+	var messages []string
+	currentRows := [][]string{}
+
+	for _, row := range data.Rows {
+		// Test with current rows + new row
+		testData := &TableData{
+			Headers: data.Headers,
+			Rows:    append(currentRows, row),
+		}
+
+		testTable := req.createBoxDrawingTable(testData)
+		testMessage := prefix + "```\n" + testTable + "\n```"
+
+		if len(testMessage) > maxLength && len(currentRows) > 0 {
+			// Current message is full, create it and start new one
+			currentData := &TableData{
+				Headers: data.Headers,
+				Rows:    currentRows,
+			}
+			currentTable := req.createBoxDrawingTable(currentData)
+			messages = append(messages, prefix+"```\n"+currentTable+"\n```")
+
+			// Start new message with current row
+			currentRows = [][]string{row}
+		} else {
+			// Add row to current message
+			currentRows = append(currentRows, row)
+		}
+	}
+
+	// Add remaining rows if any
+	if len(currentRows) > 0 {
+		currentData := &TableData{
+			Headers: data.Headers,
+			Rows:    currentRows,
+		}
+		currentTable := req.createBoxDrawingTable(currentData)
+		messages = append(messages, prefix+"```\n"+currentTable+"\n```")
+	}
+
+	return messages
 }

@@ -391,9 +391,9 @@ func (s *EmailService) SendDomainStatusNotification(domain model.Domain, statusC
 		}
 
 		// Send email
-		subject, body := s.formatEmailMessage(notificationType, config.Language, domain, formattedTime)
+		subject, body := s.formatEmailMessage(notificationType, domain, formattedTime)
 
-		if err := s.sendEmail(config.EmailAddress, config.EmailName, subject, body); err != nil {
+		if err := s.sendEmail(config.EmailAddress, subject, body); err != nil {
 			log.Printf("Failed to send email notification to %s: %v", config.EmailAddress, err)
 			continue
 		}
@@ -416,7 +416,7 @@ func (s *EmailService) SendDomainStatusNotification(domain model.Domain, statusC
 }
 
 // formatEmailMessage formats the email subject and body
-func (s *EmailService) formatEmailMessage(notificationType, language string, domain model.Domain, formattedTime string) (string, string) {
+func (s *EmailService) formatEmailMessage(notificationType string, domain model.Domain, formattedTime string) (string, string) {
 	var subject, bodyTemplate string
 
 	switch notificationType {
@@ -520,7 +520,7 @@ func (s *EmailService) formatEmailMessage(notificationType, language string, dom
 }
 
 // sendEmail sends an email using SMTP
-func (s *EmailService) sendEmail(toEmail, toName, subject, body string) error {
+func (s *EmailService) sendEmail(toEmail, subject, body string) error {
 	from := s.config.FromEmail
 	to := []string{toEmail}
 
@@ -583,7 +583,7 @@ func (s *EmailService) SendTestEmail(config model.EmailConfig) error {
 	</body>
 	</html>`
 
-	return s.sendEmail(config.EmailAddress, config.EmailName, subject, body)
+	return s.sendEmail(config.EmailAddress, subject, body)
 }
 
 // SendCustomHTMLMessage sends a custom HTML email to user's email configs
@@ -610,7 +610,7 @@ func (s *EmailService) SendCustomHTMLMessage(userID int, subject, htmlBody strin
 
 		log.Printf("Sending custom HTML email to %s for user %d", config.EmailAddress, userID)
 
-		if err := s.sendHTMLEmail(config.EmailAddress, subject, htmlBody); err != nil {
+		if err := s.sendHTMLEmail(config.EmailAddress, subject); err != nil {
 			log.Printf("Failed to send custom HTML email to %s: %v", config.EmailAddress, err)
 			lastError = err
 			continue
@@ -633,7 +633,7 @@ func (s *EmailService) SendCustomHTMLMessage(userID int, subject, htmlBody strin
 }
 
 // sendHTMLEmail sends an HTML email
-func (s *EmailService) sendHTMLEmail(to, subject, htmlBody string) error {
+func (s *EmailService) sendHTMLEmail(to, subject string) error {
 	// Implementation depends on your email service
 	// This is a placeholder
 	log.Printf("Sending HTML email to %s with subject: %s", to, subject)

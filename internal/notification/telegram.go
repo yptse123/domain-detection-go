@@ -614,38 +614,6 @@ func (s *TelegramService) formatMessage(message, language string, domain model.D
 	return message
 }
 
-// escapeMarkdown escapes special Markdown characters to prevent parsing errors
-func escapeMarkdown(text string) string {
-	// Characters that need to be escaped in Telegram Markdown
-	replacements := map[string]string{
-		"_": "\\_",
-		"*": "\\*",
-		"`": "\\`",
-		"[": "\\[",
-		"]": "\\]",
-		"(": "\\(",
-		")": "\\)",
-		"~": "\\~",
-		">": "\\>",
-		"#": "\\#",
-		"+": "\\+",
-		"-": "\\-",
-		"=": "\\=",
-		"|": "\\|",
-		"{": "\\{",
-		"}": "\\}",
-		".": "\\.",
-		"!": "\\!",
-	}
-
-	result := text
-	for char, escaped := range replacements {
-		result = strings.ReplaceAll(result, char, escaped)
-	}
-
-	return result
-}
-
 // sendTelegramMessage sends a text message to a specific Telegram chat
 func (s *TelegramService) sendTelegramMessage(chatID, message string) error {
 	<-s.rateLimiter // Rate limiting
