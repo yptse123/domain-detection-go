@@ -857,6 +857,68 @@ func (s *TelegramService) AnswerCallbackQuery(callbackQueryID, text string) erro
 	return nil
 }
 
+// SendMultipleCustomMessages sends multiple custom messages to user's Telegram configs
+func (s *TelegramService) SendMultipleCustomMessages(userID int, messages []string) error {
+	if len(messages) == 0 {
+		return fmt.Errorf("no messages to send")
+	}
+
+	// Get user's Telegram configurations
+	configs, err := s.GetTelegramConfigsForUser(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user Telegram configs: %w", err)
+	}
+
+	if len(configs) == 0 {
+		log.Printf("No Telegram configs found for user %d", userID)
+		return fmt.Errorf("no Telegram configs found for user %d", userID)
+	}
+
+	var sentCount int
+	var lastError error
+
+	// Send messages to all active configs
+	for _, config := range configs {
+		if !config.IsActive {
+			log.Printf("Skipping inactive Telegram config %d for user %d", config.ID, userID)
+			continue
+		}
+
+		log.Printf("Sending %d custom messages to Telegram chat %s for user %d", len(messages), config.ChatID, userID)
+
+		// Send each message with a small delay to avoid rate limits
+		for i, message := range messages {
+			if err := s.sendMessage(config.ChatID, message); err != nil {
+				log.Printf("Failed to send message %d/%d to chat %s: %v", i+1, len(messages), config.ChatID, err)
+				lastError = err
+				break // Stop sending remaining messages to this config on error
+			}
+
+			log.Printf("Successfully sent message %d/%d to chat %s", i+1, len(messages), config.ChatID)
+
+			// Add small delay between messages to avoid rate limits
+			if i < len(messages)-1 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+
+		if lastError == nil {
+			sentCount++
+		}
+	}
+
+	if sentCount == 0 {
+		if lastError != nil {
+			return fmt.Errorf("failed to send messages to any Telegram config: %w", lastError)
+		}
+		return fmt.Errorf("no active Telegram configs found for user %d", userID)
+	}
+
+	log.Printf("Successfully sent custom messages to %d/%d Telegram configs for user %d",
+		sentCount, len(configs), userID)
+	return nil
+}
+
 // SendCustomMessage sends a custom message to user's Telegram configs
 func (s *TelegramService) SendCustomMessage(userID int, message string) error {
 	// Get user's Telegram configurations

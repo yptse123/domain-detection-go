@@ -144,17 +144,17 @@ func (h *CallbackHandler) sendDeepCheckNotifications(requestID string, domain mo
 	log.Printf("[CALLBACK-%s] Sending deep check notifications for domain %s (User: %d)",
 		requestID, domain.Name, domain.UserID)
 
-	// Send Telegram notification
+	// Send Telegram notification (multiple messages)
 	if h.telegramService != nil {
-		telegramMessage := callback.FormatTelegramMessage(targetDomain)
-		if err := h.telegramService.SendCustomMessage(domain.UserID, telegramMessage); err != nil {
-			log.Printf("[CALLBACK-%s] ERROR: Failed to send Telegram notification: %v", requestID, err)
+		telegramMessages := callback.FormatTelegramMessage(targetDomain) // Now returns []string
+		if err := h.telegramService.SendMultipleCustomMessages(domain.UserID, telegramMessages); err != nil {
+			log.Printf("[CALLBACK-%s] ERROR: Failed to send Telegram notifications: %v", requestID, err)
 		} else {
-			log.Printf("[CALLBACK-%s] Successfully sent Telegram notification", requestID)
+			log.Printf("[CALLBACK-%s] Successfully sent %d Telegram messages", requestID, len(telegramMessages))
 		}
 	}
 
-	// Send Email notification
+	// Send Email notification (unchanged - emails can be longer)
 	if h.emailService != nil {
 		subject, htmlBody := callback.FormatEmailMessage(targetDomain)
 		if err := h.emailService.SendCustomHTMLMessage(domain.UserID, subject, htmlBody); err != nil {
