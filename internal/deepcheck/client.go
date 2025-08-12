@@ -178,13 +178,9 @@ func (r *DeepCheckRecord) IsHealthy() bool {
 		return false
 	}
 
-	// Get response time in milliseconds
-	responseTimeMs := r.GetResponseTimeMs()
-
 	// If HTTP code is 0, check response time
 	if r.HTTPCode == 0 {
-		// Response time > 10 seconds (10000ms) indicates timeout/failure
-		return responseTimeMs > 0 && responseTimeMs <= 10000
+		return false
 	}
 
 	// For non-zero HTTP codes, check if it's in success range
@@ -193,19 +189,9 @@ func (r *DeepCheckRecord) IsHealthy() bool {
 
 // GetStatusDescription returns a description of the status
 func (r *DeepCheckRecord) GetStatusDescription() string {
-	responseTimeMs := r.GetResponseTimeMs()
-
-	if r.HTTPCode == 0 {
-		if r.Type == "success" {
-			if responseTimeMs > 10000 {
-				return "連線超時"
-			}
-			return "連線正常"
-		}
-		return "無回應"
-	}
-
 	switch r.HTTPCode {
+	case 0:
+		return "無回應"
 	case 200:
 		return "正常"
 	case 301, 302, 303, 307, 308:
