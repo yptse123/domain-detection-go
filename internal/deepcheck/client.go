@@ -260,7 +260,8 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain string) 
 	message.WriteString(fmt.Sprintf("🕓 **檢查時間**：%s\n", summary.CheckTime.Format("2006-01-02 15:04:05 (UTC+8)")))
 	message.WriteString(fmt.Sprintf("🔍 **訂單編號**：%s\n\n", req.OrderID))
 
-	if summary.Status == "全部正常" {
+	switch summary.Status {
+	case "全部正常":
 		message.WriteString("🟢 **全部節點連線正常**\n\n")
 		message.WriteString("**詳細結果**：\n")
 		message.WriteString("```\n")
@@ -277,7 +278,7 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain string) 
 		}
 		message.WriteString("```")
 
-	} else if summary.Status == "部分異常" {
+	case "部分異常":
 		message.WriteString("🟡 **部分異常**：部份地區訪問緩慢或跳轉多\n\n")
 
 		// Error regions
@@ -320,7 +321,7 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain string) 
 		}
 		message.WriteString("```")
 
-	} else { // 全部異常
+	default: // 全部異常
 		message.WriteString("🔴 **所有地區無法訪問域名**\n\n")
 		message.WriteString("🚨 **全部異常**\n\n")
 
@@ -344,7 +345,13 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain string) 
 		message.WriteString("```")
 	}
 
-	return message.String()
+	formattedMessage := message.String()
+
+	// LOG THE RAW TELEGRAM MESSAGE FOR PREVIEW
+	log.Printf("[DEEP-CHECK] RAW TELEGRAM MESSAGE PREVIEW:\n%s", formattedMessage)
+	log.Printf("[DEEP-CHECK] TELEGRAM MESSAGE LENGTH: %d characters", len(formattedMessage))
+
+	return formattedMessage
 }
 
 // FormatEmailMessage formats the callback results for Email (HTML format)
@@ -441,5 +448,12 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain string) (st
 	</body>
 	</html>`)
 
-	return subject, body.String()
+	htmlBody := body.String()
+
+	// LOG THE RAW EMAIL MESSAGE FOR PREVIEW
+	log.Printf("[DEEP-CHECK] RAW EMAIL SUBJECT PREVIEW: %s", subject)
+	log.Printf("[DEEP-CHECK] RAW EMAIL HTML BODY PREVIEW:\n%s", htmlBody)
+	log.Printf("[DEEP-CHECK] EMAIL HTML BODY LENGTH: %d characters", len(htmlBody))
+
+	return subject, htmlBody
 }
