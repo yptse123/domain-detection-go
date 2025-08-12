@@ -155,11 +155,12 @@ func (c *UptrendsClient) CreateMonitor(fullURL string, name string, regions []st
 
 	// Determine MonitorType based on protocol
 	monitorType := "Https"
-	if parsedURL.Scheme == "http" {
+	switch parsedURL.Scheme {
+	case "http":
 		monitorType = "Https"
-	} else if parsedURL.Scheme == "https" {
+	case "https":
 		monitorType = "Https"
-	} else if parsedURL.Scheme == "" {
+	case "":
 		// Default to HTTPS if no protocol provided
 		monitorType = "Https"
 		fullURL = fmt.Sprintf("https://%s", fullURL)

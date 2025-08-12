@@ -67,10 +67,11 @@ func main() {
 	// Initialize services
 	authService := auth.NewAuthService(db, cfg.JWTSecret, cfg.EncryptionKey)
 	domainService := domain.NewDomainService(db, uptrendsClient, site24x7Client)
+	deepCheckService := service.NewDeepCheckService(db)
 	promptService := service.NewTelegramPromptService(db)
 	telegramService := notification.NewTelegramService(telegramConfig, db, promptService)
 	emailService := notification.NewEmailService(emailConfig, db, promptService)
-	monitorService := monitor.NewMonitorService(uptrendsClient, site24x7Client, domainService, telegramService, emailService)
+	monitorService := monitor.NewMonitorService(uptrendsClient, site24x7Client, domainService, telegramService, emailService, deepCheckService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
@@ -79,7 +80,7 @@ func main() {
 	telegramBotHandler := handler.NewTelegramBotHandler(telegramService, domainService)
 	promptHandler := handler.NewTelegramPromptHandler(promptService)
 	emailHandler := handler.NewEmailHandler(emailService)
-	callbackHandler := handler.NewCallbackHandler()
+	callbackHandler := handler.NewCallbackHandler(domainService, telegramService, emailService, deepCheckService)
 	// monitorHandler := handler.NewMonitorHandler(monitorService)
 
 	// Start the scheduled domain check in a goroutine

@@ -10,22 +10,30 @@ import (
 	"domain-detection-go/internal/deepcheck"
 	"domain-detection-go/internal/domain"
 	"domain-detection-go/internal/notification"
+	"domain-detection-go/internal/service"
 	"domain-detection-go/pkg/model"
 )
 
 // MonitorService manages domain monitoring operations
 type MonitorService struct {
-	uptrendsClient  *UptrendsClient
-	site24x7Client  *Site24x7Client
-	deepCheckClient *deepcheck.DeepCheckClient
-	domainService   *domain.DomainService
-	telegramService *notification.TelegramService
-	emailService    *notification.EmailService
-	regions         []string
+	uptrendsClient   *UptrendsClient
+	site24x7Client   *Site24x7Client
+	deepCheckClient  *deepcheck.DeepCheckClient
+	domainService    *domain.DomainService
+	telegramService  *notification.TelegramService
+	emailService     *notification.EmailService
+	deepCheckService *service.DeepCheckService
+	regions          []string
 }
 
 // NewMonitorService creates a new monitor service
-func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7Client, domainService *domain.DomainService, telegramService *notification.TelegramService, emailService *notification.EmailService) *MonitorService {
+func NewMonitorService(uptrendsClient *UptrendsClient,
+	site24x7Client *Site24x7Client,
+	domainService *domain.DomainService,
+	telegramService *notification.TelegramService,
+	emailService *notification.EmailService,
+	deepCheckService *service.DeepCheckService,
+) *MonitorService {
 	// Default regions to check
 	regions := []string{
 		"CN", // China
@@ -38,13 +46,14 @@ func NewMonitorService(uptrendsClient *UptrendsClient, site24x7Client *Site24x7C
 	}
 
 	return &MonitorService{
-		uptrendsClient:  uptrendsClient,
-		site24x7Client:  site24x7Client,
-		deepCheckClient: deepcheck.NewDeepCheckClient(),
-		domainService:   domainService,
-		telegramService: telegramService,
-		regions:         regions,
-		emailService:    emailService,
+		uptrendsClient:   uptrendsClient,
+		site24x7Client:   site24x7Client,
+		deepCheckClient:  deepcheck.NewDeepCheckClient(),
+		domainService:    domainService,
+		telegramService:  telegramService,
+		regions:          regions,
+		emailService:     emailService,
+		deepCheckService: deepCheckService,
 	}
 }
 
@@ -349,6 +358,11 @@ func (s *MonitorService) triggerDeepCheck(domain model.Domain) {
 		return
 	}
 
+	if s.deepCheckService == nil {
+		log.Printf("[DEEP-CHECK] WARNING: Deep check service not available for domain %s", domain.Name)
+		return
+	}
+
 	log.Printf("[DEEP-CHECK] Triggering deep check for CN domain %s (ID: %d)", domain.Name, domain.ID)
 
 	// Call the deep check API
@@ -360,6 +374,12 @@ func (s *MonitorService) triggerDeepCheck(domain model.Domain) {
 
 	log.Printf("[DEEP-CHECK] SUCCESS: Deep check initiated for domain %s - OrderID: %s",
 		domain.Name, response.OrderID)
+
+	// Store the order in database for later callback handling
+	if err := s.deepCheckService.CreateDeepCheckOrder(response.OrderID, domain.UserID, domain.ID, domain.Name); err != nil {
+		log.Printf("[DEEP-CHECK] ERROR: Failed to store deep check order %s: %v", response.OrderID, err)
+		// Continue execution - the deep check is still running, we just can't track it
+	}
 }
 
 // RunScheduledChecks performs periodic checks on all active domains

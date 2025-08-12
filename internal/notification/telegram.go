@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -853,5 +854,101 @@ func (s *TelegramService) AnswerCallbackQuery(callbackQueryID, text string) erro
 	}
 	defer resp.Body.Close()
 
+	return nil
+}
+
+// SendCustomMessage sends a custom message to user's Telegram configs
+func (s *TelegramService) SendCustomMessage(userID int, message string) error {
+	// Get user's Telegram configurations
+	configs, err := s.GetTelegramConfigsForUser(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user Telegram configs: %w", err)
+	}
+
+	if len(configs) == 0 {
+		log.Printf("No Telegram configs found for user %d", userID)
+		return fmt.Errorf("no Telegram configs found for user %d", userID)
+	}
+
+	var sentCount int
+	var lastError error
+
+	// Send message to all active configs
+	for _, config := range configs {
+		if !config.IsActive {
+			log.Printf("Skipping inactive Telegram config %d for user %d", config.ID, userID)
+			continue
+		}
+
+		log.Printf("Sending custom message to Telegram chat %s for user %d", config.ChatID, userID)
+
+		if err := s.sendMessage(config.ChatID, message); err != nil {
+			log.Printf("Failed to send custom message to chat %s: %v", config.ChatID, err)
+			lastError = err
+			continue
+		}
+
+		sentCount++
+		log.Printf("Successfully sent custom message to chat %s", config.ChatID)
+	}
+
+	if sentCount == 0 {
+		if lastError != nil {
+			return fmt.Errorf("failed to send message to any Telegram config: %w", lastError)
+		}
+		return fmt.Errorf("no active Telegram configs found for user %d", userID)
+	}
+
+	log.Printf("Successfully sent custom message to %d/%d Telegram configs for user %d",
+		sentCount, len(configs), userID)
+	return nil
+}
+
+// sendMessage sends a message to a specific chat ID (helper method)
+func (s *TelegramService) sendMessage(chatID, message string) error {
+	if s.httpClient == nil {
+		return fmt.Errorf("Telegram client not initialized")
+	}
+
+	// Prepare the message payload
+	payload := map[string]interface{}{
+		"chat_id":    chatID,
+		"text":       message,
+		"parse_mode": "Markdown", // Support Markdown formatting
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal message payload: %w", err)
+	}
+
+	// Send the message via Telegram Bot API
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", s.config.APIToken)
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Telegram API error: Status %d, Body: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("Telegram API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.Printf("Message sent successfully to chat %s", chatID)
 	return nil
 }

@@ -1,0 +1,1 @@
+DROP TABLE deep_check_orders;

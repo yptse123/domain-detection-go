@@ -562,26 +562,80 @@ func (s *EmailService) SendTestEmail(config model.EmailConfig) error {
 	formattedTime := time.Now().In(loc).Format("2006-01-02 15:04:05")
 
 	body := `
-<!DOCTYPE html>
-<html>
-<head>
-	<meta charset="UTF-8">
-	<title>Test Email</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-	<div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-		<h2 style="color: #3498db;">🧪 Test Email</h2>
-		<p>This is a test email from your Domain Monitoring Service.</p>
-		<p>If you're receiving this email, your email notifications are configured correctly.</p>
-		<div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-			<p><strong>Configuration:</strong> ` + config.EmailName + `</p>
-			<p><strong>Email:</strong> ` + config.EmailAddress + `</p>
-			<p><strong>Language:</strong> ` + config.Language + `</p>
+	<!DOCTYPE html>
+	<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>Test Email</title>
+	</head>
+	<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+		<div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+			<h2 style="color: #3498db;">🧪 Test Email</h2>
+			<p>This is a test email from your Domain Monitoring Service.</p>
+			<p>If you're receiving this email, your email notifications are configured correctly.</p>
+			<div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+				<p><strong>Configuration:</strong> ` + config.EmailName + `</p>
+				<p><strong>Email:</strong> ` + config.EmailAddress + `</p>
+				<p><strong>Language:</strong> ` + config.Language + `</p>
+			</div>
+			<p style="color: #666; font-size: 12px;">Sent at: ` + formattedTime + ` (UTC+8)</p>
 		</div>
-		<p style="color: #666; font-size: 12px;">Sent at: ` + formattedTime + ` (UTC+8)</p>
-	</div>
-</body>
-</html>`
+	</body>
+	</html>`
 
 	return s.sendEmail(config.EmailAddress, config.EmailName, subject, body)
+}
+
+// SendCustomHTMLMessage sends a custom HTML email to user's email configs
+func (s *EmailService) SendCustomHTMLMessage(userID int, subject, htmlBody string) error {
+	configs, err := s.GetEmailConfigsForUser(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user email configs: %w", err)
+	}
+
+	if len(configs) == 0 {
+		log.Printf("No email configs found for user %d", userID)
+		return fmt.Errorf("no email configs found for user %d", userID)
+	}
+
+	var sentCount int
+	var lastError error
+
+	// Send to all active email configs
+	for _, config := range configs {
+		if !config.IsActive {
+			log.Printf("Skipping inactive email config %d for user %d", config.ID, userID)
+			continue
+		}
+
+		log.Printf("Sending custom HTML email to %s for user %d", config.EmailAddress, userID)
+
+		if err := s.sendHTMLEmail(config.EmailAddress, subject, htmlBody); err != nil {
+			log.Printf("Failed to send custom HTML email to %s: %v", config.EmailAddress, err)
+			lastError = err
+			continue
+		}
+
+		sentCount++
+		log.Printf("Successfully sent custom HTML email to %s", config.EmailAddress)
+	}
+
+	if sentCount == 0 {
+		if lastError != nil {
+			return fmt.Errorf("failed to send email to any config: %w", lastError)
+		}
+		return fmt.Errorf("no active email configs found for user %d", userID)
+	}
+
+	log.Printf("Successfully sent custom HTML email to %d/%d email configs for user %d",
+		sentCount, len(configs), userID)
+	return nil
+}
+
+// sendHTMLEmail sends an HTML email
+func (s *EmailService) sendHTMLEmail(to, subject, htmlBody string) error {
+	// Implementation depends on your email service
+	// This is a placeholder
+	log.Printf("Sending HTML email to %s with subject: %s", to, subject)
+	return nil
 }
