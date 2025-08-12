@@ -485,100 +485,96 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain string) (st
 
 	var body strings.Builder
 	body.WriteString(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-		body{font-family:Arial,sans-serif;line-height:1.6}
-		.header{background-color:#f4f4f4;padding:15px;text-align:center}
-		.content{padding:15px}
-		.summary{background-color:#e7f3ff;padding:10px;margin:10px 0;border-radius:5px}
-		table{width:100%;border-collapse:collapse;margin:10px 0}
-		th,td{border:1px solid #ddd;padding:4px;text-align:left;font-size:12px}
-		th{background-color:#f2f2f2}
-		.success{color:#28a745}.warning{color:#ffc107}.danger{color:#dc3545}
-		</style></head><body>`)
+        body{font-family:Arial,sans-serif;line-height:1.6}
+        .header{background-color:#f4f4f4;padding:15px;text-align:center}
+        .content{padding:15px}
+        .summary{background-color:#e7f3ff;padding:10px;margin:10px 0;border-radius:5px}
+        table{width:100%;border-collapse:collapse;margin:10px 0}
+        th,td{border:1px solid #ddd;padding:6px;text-align:left;font-size:11px}
+        th{background-color:#f2f2f2;font-weight:bold}
+        .success{color:#28a745}.warning{color:#ffc107}.danger{color:#dc3545}
+        .error-row{background-color:#fff2f2}
+        .success-row{background-color:#f2fff2}
+        </style></head><body>`)
 
 	body.WriteString(fmt.Sprintf(`
-		<div class="header">
-		<h2>🌐 深度網絡檢測報告</h2>
-		<p>%s %s：%d/%d 節點正常 (%.1f%%)</p>
-		</div>
-		<div class="content">
-		<div class="summary">
-		<p><strong>📍 目標域名：</strong>%s</p>
-		<p><strong>🕓 檢查時間：</strong>%s</p>
-		<p><strong>🔍 訂單編號：</strong>%s</p>
-		</div>`,
+        <div class="header">
+        <h2>🌐 深度網絡檢測報告</h2>
+        <p>%s %s：%d/%d 節點正常 (%.1f%%)</p>
+        </div>
+        <div class="content">
+        <div class="summary">
+        <p><strong>📍 目標域名：</strong>%s</p>
+        <p><strong>🕓 檢查時間：</strong>%s</p>
+        <p><strong>🔍 訂單編號：</strong>%s</p>
+        </div>`,
 		summary.StatusEmoji, summary.Status, summary.SuccessNodes, summary.TotalNodes, summary.SuccessRate,
 		targetDomain, summary.CheckTime.Format("2006-01-02 15:04:05"), req.OrderID))
 
-	// Only show failed regions for partial failure to reduce size
-	if summary.Status == "部分異常" {
-		body.WriteString(`<h3 class="warning">異常地區 (共` + fmt.Sprintf("%d", summary.ErrorNodes) + `個)：</h3>`)
-		body.WriteString(`<table><tr><th>省份</th><th>城市</th><th>電訊商</th><th>狀態</th></tr>`)
+	// Show all data based on status
+	switch summary.Status {
+	case "部分異常":
+		// Show error regions first
+		body.WriteString(`<h3 class="danger">異常地區 (共` + fmt.Sprintf("%d", summary.ErrorNodes) + `個)：</h3>`)
+		body.WriteString(`<table>`)
+		body.WriteString(`<tr><th>省份</th><th>城市</th><th>電訊商</th><th>響應時間</th><th>狀態碼</th><th>狀態描述</th><th>IP地址</th></tr>`)
 
-		count := 0
 		for _, record := range req.Records {
 			if !record.IsHealthy() {
 				city := req.extractCityName(record)
-				body.WriteString(fmt.Sprintf(`<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-					record.RegionName, city, record.ISP, record.GetStatusDescription()))
-				count++
-				if count >= 10 { // Limit to first 10 failed regions
-					if summary.ErrorNodes > 10 {
-						body.WriteString(fmt.Sprintf(`<tr><td colspan="4">... 還有 %d 個異常地區</td></tr>`, summary.ErrorNodes-10))
-					}
-					break
+				responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
+				if record.HTTPCode == 0 || record.GetResponseTimeMs() > 10000 {
+					responseTime = "超時"
 				}
+
+				body.WriteString(fmt.Sprintf(`<tr class="error-row"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
+					record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription(), record.IP))
 			}
 		}
 		body.WriteString(`</table>`)
 
-		body.WriteString(`<p class="success">正常地區：` + fmt.Sprintf("%d", summary.SuccessNodes) + ` 個節點連線正常</p>`)
-
-	} else if summary.Status == "全部異常" {
-		body.WriteString(`<h3 class="danger">全部異常 (共` + fmt.Sprintf("%d", summary.ErrorNodes) + `個)：</h3>`)
-		body.WriteString(`<table><tr><th>省份</th><th>城市</th><th>電訊商</th><th>狀態</th></tr>`)
-
-		count := 0
-		for _, record := range req.Records {
-			city := req.extractCityName(record)
-			body.WriteString(fmt.Sprintf(`<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-				record.RegionName, city, record.ISP, record.GetStatusDescription()))
-			count++
-			if count >= 15 { // Limit to first 15 regions for all failure
-				if summary.TotalNodes > 15 {
-					body.WriteString(fmt.Sprintf(`<tr><td colspan="4">... 還有 %d 個異常地區</td></tr>`, summary.TotalNodes-15))
-				}
-				break
-			}
-		}
-		body.WriteString(`</table>`)
-
-	} else { // 全部正常
-		body.WriteString(`<h3 class="success">全部正常：</h3>`)
-		body.WriteString(`<p>所有 ` + fmt.Sprintf("%d", summary.TotalNodes) + ` 個測試節點均連線正常</p>`)
-
-		// Show summary table for normal status (first 5 regions only)
-		body.WriteString(`<table><tr><th>省份</th><th>電訊商</th><th>平均響應時間</th></tr>`)
-		regionSummary := make(map[string][]int)
+		// Show normal regions
+		body.WriteString(`<h3 class="success">正常地區 (共` + fmt.Sprintf("%d", summary.SuccessNodes) + `個)：</h3>`)
+		body.WriteString(`<table>`)
+		body.WriteString(`<tr><th>省份</th><th>城市</th><th>電訊商</th><th>響應時間</th><th>狀態碼</th><th>IP地址</th></tr>`)
 
 		for _, record := range req.Records {
 			if record.IsHealthy() {
-				regionSummary[record.RegionName] = append(regionSummary[record.RegionName], record.GetResponseTimeMs())
+				city := req.extractCityName(record)
+				body.WriteString(fmt.Sprintf(`<tr class="success-row"><td>%s</td><td>%s</td><td>%s</td><td>%dms</td><td>%d</td><td>%s</td></tr>`,
+					record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode, record.IP))
 			}
 		}
+		body.WriteString(`</table>`)
 
-		count := 0
-		for region, times := range regionSummary {
-			if count >= 5 {
-				break
-			}
-			avg := 0
-			for _, time := range times {
-				avg += time
-			}
-			avg /= len(times)
+	case "全部異常":
+		// Show all error regions
+		body.WriteString(`<h3 class="danger">全部異常 (共` + fmt.Sprintf("%d", summary.ErrorNodes) + `個)：</h3>`)
+		body.WriteString(`<table>`)
+		body.WriteString(`<tr><th>省份</th><th>城市</th><th>電訊商</th><th>響應時間</th><th>狀態碼</th><th>狀態描述</th><th>IP地址</th></tr>`)
 
-			body.WriteString(fmt.Sprintf(`<tr><td>%s</td><td>多個電訊商</td><td>%dms</td></tr>`, region, avg))
-			count++
+		for _, record := range req.Records {
+			city := req.extractCityName(record)
+			responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
+			if record.HTTPCode == 0 || record.GetResponseTimeMs() > 10000 {
+				responseTime = "超時"
+			}
+
+			body.WriteString(fmt.Sprintf(`<tr class="error-row"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
+				record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription(), record.IP))
+		}
+		body.WriteString(`</table>`)
+
+	default: // 全部正常
+		// Show all normal regions
+		body.WriteString(`<h3 class="success">全部正常 (共` + fmt.Sprintf("%d", summary.TotalNodes) + `個)：</h3>`)
+		body.WriteString(`<table>`)
+		body.WriteString(`<tr><th>省份</th><th>城市</th><th>電訊商</th><th>響應時間</th><th>狀態碼</th><th>IP地址</th></tr>`)
+
+		for _, record := range req.Records {
+			city := req.extractCityName(record)
+			body.WriteString(fmt.Sprintf(`<tr class="success-row"><td>%s</td><td>%s</td><td>%s</td><td>%dms</td><td>%d</td><td>%s</td></tr>`,
+				record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode, record.IP))
 		}
 		body.WriteString(`</table>`)
 	}
