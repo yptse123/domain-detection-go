@@ -139,7 +139,7 @@ func (h *CallbackHandler) processDeepCheckCallback(requestID string, callback *d
 	h.sendDeepCheckNotifications(requestID, *domain, callback, order.DomainName)
 }
 
-// Update the sendDeepCheckNotifications method
+// Update the sendDeepCheckNotifications method in callback_handler.go
 func (h *CallbackHandler) sendDeepCheckNotifications(requestID string, domain model.Domain, callback *deepcheck.DeepCheckCallbackRequest, targetDomain string) {
 	log.Printf("[CALLBACK-%s] Sending deep check notifications for domain %s (User: %d)",
 		requestID, domain.Name, domain.UserID)
@@ -179,13 +179,38 @@ func (h *CallbackHandler) sendDeepCheckNotifications(requestID string, domain mo
 		}
 	}
 
-	// Send Email notification (unchanged - emails can be longer)
+	// Send Email notification with language support
 	if h.emailService != nil {
-		subject, htmlBody := callback.FormatEmailMessage(targetDomain)
-		if err := h.emailService.SendCustomHTMLMessage(domain.UserID, subject, htmlBody); err != nil {
-			log.Printf("[CALLBACK-%s] ERROR: Failed to send email notification: %v", requestID, err)
+		// Get user's email configurations to determine languages
+		configs, err := h.emailService.GetEmailConfigsForUser(domain.UserID)
+		if err != nil {
+			log.Printf("[CALLBACK-%s] ERROR: Failed to get email configs: %v", requestID, err)
+		} else if len(configs) > 0 {
+			// Send to each config with their preferred language
+			for _, config := range configs {
+				if !config.IsActive {
+					continue
+				}
+
+				language := config.Language
+				if language == "" {
+					language = "en" // Default to English
+				}
+
+				log.Printf("[CALLBACK-%s] Formatting email message for language: %s", requestID, language)
+				subject, htmlBody := callback.FormatEmailMessage(targetDomain, language) // Pass language parameter
+
+				// Send email to this specific config
+				if err := h.emailService.SendEmailToSpecificConfig(config, subject, htmlBody); err != nil {
+					log.Printf("[CALLBACK-%s] ERROR: Failed to send email to config %d: %v",
+						requestID, config.ID, err)
+				} else {
+					log.Printf("[CALLBACK-%s] Successfully sent email to config %d (%s)",
+						requestID, config.ID, language)
+				}
+			}
 		} else {
-			log.Printf("[CALLBACK-%s] Successfully sent email notification", requestID)
+			log.Printf("[CALLBACK-%s] No active email configs found for user %d", requestID, domain.UserID)
 		}
 	}
 }

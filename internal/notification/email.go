@@ -639,3 +639,19 @@ func (s *EmailService) SendCustomHTMLMessage(userID int, subject, htmlBody strin
 // 	log.Printf("Sending HTML email to %s with subject: %s", to, subject)
 // 	return nil
 // }
+
+// SendEmailToSpecificConfig sends an email to a specific email configuration
+func (s *EmailService) SendEmailToSpecificConfig(config model.EmailConfig, subject, htmlBody string) error {
+	if !config.IsActive {
+		return fmt.Errorf("email configuration is not active")
+	}
+
+	log.Printf("Sending email to %s with subject: %s", config.EmailAddress, subject)
+
+	if err := s.sendEmail(config.EmailAddress, subject, htmlBody); err != nil {
+		return fmt.Errorf("failed to send email to %s: %w", config.EmailAddress, err)
+	}
+
+	log.Printf("Successfully sent email to %s", config.EmailAddress)
+	return nil
+}

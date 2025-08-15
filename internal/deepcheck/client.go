@@ -547,10 +547,11 @@ func (req *DeepCheckCallbackRequest) extractCityName(record DeepCheckRecord) str
 	return city
 }
 
-// FormatEmailMessage formats the callback results for Email (HTML format)
-func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain string) (string, string) {
+// FormatEmailMessage formats the callback results for Email (HTML format) with translation support
+func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain, language string) (string, string) {
 	summary := req.AnalyzeResults(targetDomain)
 
+	// Create subject in Chinese first
 	subject := fmt.Sprintf("深度網絡檢測報告 - %s [%s]", targetDomain, summary.Status)
 
 	var body strings.Builder
@@ -567,46 +568,170 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain string) (st
         .success-row{background-color:#f2fff2}
         </style></head><body>`)
 
+	// Create translatable content (Chinese first)
+	headerTitle := "🌐 深度網絡檢測報告"
+	statusText := fmt.Sprintf("%s %s：%d/%d 節點正常 (%.1f%%)",
+		summary.StatusEmoji, summary.Status, summary.SuccessNodes, summary.TotalNodes, summary.SuccessRate)
+	targetDomainLabel := "📍 目標域名："
+	checkTimeLabel := "🕓 檢查時間："
+	orderIdLabel := "🔍 訂單編號："
+
+	// Table headers in Chinese
+	provinceHeader := "省份"
+	cityHeader := "城市"
+	ispHeader := "電訊商"
+	responseTimeHeader := "響應時間"
+	statusCodeHeader := "狀態碼"
+	statusDescHeader := "狀態描述"
+	ipHeader := "IP地址"
+
+	// Section titles
+	errorRegionsTitle := "異常地區"
+	normalRegionsTitle := "正常地區"
+	allErrorTitle := "全部異常"
+	allNormalTitle := "全部正常"
+	timeoutText := "超時"
+	countSuffix := "個"
+
+	// Translate content if not Chinese
+	if language != "" && language != "zh" && language != "zh-CN" {
+		log.Printf("[DEEP-CHECK] Translating email content from Chinese to %s", language)
+
+		// Translate text elements (with error handling)
+		if translated, err := translateText(headerTitle, "zh", language); err == nil {
+			headerTitle = translated
+		}
+		if translated, err := translateText(targetDomainLabel, "zh", language); err == nil {
+			targetDomainLabel = translated
+		}
+		if translated, err := translateText(checkTimeLabel, "zh", language); err == nil {
+			checkTimeLabel = translated
+		}
+		if translated, err := translateText(orderIdLabel, "zh", language); err == nil {
+			orderIdLabel = translated
+		}
+		if translated, err := translateText(provinceHeader, "zh", language); err == nil {
+			provinceHeader = translated
+		}
+		if translated, err := translateText(cityHeader, "zh", language); err == nil {
+			cityHeader = translated
+		}
+		if translated, err := translateText(ispHeader, "zh", language); err == nil {
+			ispHeader = translated
+		}
+		if translated, err := translateText(responseTimeHeader, "zh", language); err == nil {
+			responseTimeHeader = translated
+		}
+		if translated, err := translateText(statusCodeHeader, "zh", language); err == nil {
+			statusCodeHeader = translated
+		}
+		if translated, err := translateText(statusDescHeader, "zh", language); err == nil {
+			statusDescHeader = translated
+		}
+		if translated, err := translateText(ipHeader, "zh", language); err == nil {
+			ipHeader = translated
+		}
+		if translated, err := translateText(errorRegionsTitle, "zh", language); err == nil {
+			errorRegionsTitle = translated
+		}
+		if translated, err := translateText(normalRegionsTitle, "zh", language); err == nil {
+			normalRegionsTitle = translated
+		}
+		if translated, err := translateText(allErrorTitle, "zh", language); err == nil {
+			allErrorTitle = translated
+		}
+		if translated, err := translateText(allNormalTitle, "zh", language); err == nil {
+			allNormalTitle = translated
+		}
+		if translated, err := translateText(timeoutText, "zh", language); err == nil {
+			timeoutText = translated
+		}
+		if translated, err := translateText(countSuffix, "zh", language); err == nil {
+			countSuffix = translated
+		}
+
+		// Translate status text (handling complex format)
+		statusOnlyText := summary.Status // Just the status part
+		if translated, err := translateText(statusOnlyText, "zh", language); err == nil {
+			// Reconstruct status text with translated status
+			nodeText := "nodes normal" // Default fallback
+			if translatedNodes, err := translateText("節點正常", "zh", language); err == nil {
+				nodeText = translatedNodes
+			}
+			statusText = fmt.Sprintf("%s %s：%d/%d %s (%.1f%%)",
+				summary.StatusEmoji, translated, summary.SuccessNodes, summary.TotalNodes, nodeText, summary.SuccessRate)
+		}
+
+		// Translate subject - REMOVE the subjectTemplate declaration
+		if translated, err := translateText("深度網絡檢測報告", "zh", language); err == nil {
+			subject = fmt.Sprintf("%s - %s [%s]", translated, targetDomain,
+				func() string {
+					if translatedStatus, err := translateText(summary.Status, "zh", language); err == nil {
+						return translatedStatus
+					}
+					return summary.Status
+				}())
+		}
+
+		// Add small delays to avoid API rate limits
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Build the email body with translated content
 	body.WriteString(fmt.Sprintf(`
         <div class="header">
-        <h2>🌐 深度網絡檢測報告</h2>
-        <p>%s %s：%d/%d 節點正常 (%.1f%%)</p>
+        <h2>%s</h2>
+        <p>%s</p>
         </div>
         <div class="content">
         <div class="summary">
-        <p><strong>📍 目標域名：</strong>%s</p>
-        <p><strong>🕓 檢查時間：</strong>%s</p>
-        <p><strong>🔍 訂單編號：</strong>%s</p>
+        <p><strong>%s</strong>%s</p>
+        <p><strong>%s</strong>%s</p>
+        <p><strong>%s</strong>%s</p>
         </div>`,
-		summary.StatusEmoji, summary.Status, summary.SuccessNodes, summary.TotalNodes, summary.SuccessRate,
-		targetDomain, summary.CheckTime.Format("2006-01-02 15:04:05"), req.OrderID))
+		headerTitle, statusText, targetDomainLabel, targetDomain,
+		checkTimeLabel, summary.CheckTime.Format("2006-01-02 15:04:05"),
+		orderIdLabel, req.OrderID))
 
 	// Show all data based on status
 	switch summary.Status {
 	case "部分異常":
 		// Show error regions first
-		body.WriteString(`<h3 class="danger">異常地區 (共` + fmt.Sprintf("%d", summary.ErrorNodes) + `個)：</h3>`)
+		body.WriteString(fmt.Sprintf(`<h3 class="danger">%s (%s%d%s)：</h3>`,
+			errorRegionsTitle, "共", summary.ErrorNodes, countSuffix))
 		body.WriteString(`<table>`)
-		body.WriteString(`<tr><th>省份</th><th>城市</th><th>電訊商</th><th>響應時間</th><th>狀態碼</th><th>狀態描述</th><th>IP地址</th></tr>`)
+		body.WriteString(fmt.Sprintf(`<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>`,
+			provinceHeader, cityHeader, ispHeader, responseTimeHeader, statusCodeHeader, statusDescHeader, ipHeader))
 
 		for _, record := range req.Records {
 			if !record.IsHealthy() {
 				city := req.extractCityName(record)
 				responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
 				if record.HTTPCode == 0 || record.GetResponseTimeMs() > 10000 {
-					responseTime = "超時"
+					responseTime = timeoutText
+				}
+
+				// Translate status description
+				statusDesc := record.GetStatusDescription()
+				if language != "" && language != "zh" && language != "zh-CN" {
+					if translated, err := translateText(statusDesc, "zh", language); err == nil {
+						statusDesc = translated
+					}
+					time.Sleep(50 * time.Millisecond) // Small delay
 				}
 
 				body.WriteString(fmt.Sprintf(`<tr class="error-row"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
-					record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription(), record.IP))
+					record.RegionName, city, record.ISP, responseTime, record.HTTPCode, statusDesc, record.IP))
 			}
 		}
 		body.WriteString(`</table>`)
 
 		// Show normal regions
-		body.WriteString(`<h3 class="success">正常地區 (共` + fmt.Sprintf("%d", summary.SuccessNodes) + `個)：</h3>`)
+		body.WriteString(fmt.Sprintf(`<h3 class="success">%s (%s%d%s)：</h3>`,
+			normalRegionsTitle, "共", summary.SuccessNodes, countSuffix))
 		body.WriteString(`<table>`)
-		body.WriteString(`<tr><th>省份</th><th>城市</th><th>電訊商</th><th>響應時間</th><th>狀態碼</th><th>IP地址</th></tr>`)
+		body.WriteString(fmt.Sprintf(`<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>`,
+			provinceHeader, cityHeader, ispHeader, responseTimeHeader, statusCodeHeader, ipHeader))
 
 		for _, record := range req.Records {
 			if record.IsHealthy() {
@@ -619,27 +744,40 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain string) (st
 
 	case "全部異常":
 		// Show all error regions
-		body.WriteString(`<h3 class="danger">全部異常 (共` + fmt.Sprintf("%d", summary.ErrorNodes) + `個)：</h3>`)
+		body.WriteString(fmt.Sprintf(`<h3 class="danger">%s (%s%d%s)：</h3>`,
+			allErrorTitle, "共", summary.ErrorNodes, countSuffix))
 		body.WriteString(`<table>`)
-		body.WriteString(`<tr><th>省份</th><th>城市</th><th>電訊商</th><th>響應時間</th><th>狀態碼</th><th>狀態描述</th><th>IP地址</th></tr>`)
+		body.WriteString(fmt.Sprintf(`<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>`,
+			provinceHeader, cityHeader, ispHeader, responseTimeHeader, statusCodeHeader, statusDescHeader, ipHeader))
 
 		for _, record := range req.Records {
 			city := req.extractCityName(record)
 			responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
 			if record.HTTPCode == 0 || record.GetResponseTimeMs() > 10000 {
-				responseTime = "超時"
+				responseTime = timeoutText
+			}
+
+			// Translate status description
+			statusDesc := record.GetStatusDescription()
+			if language != "" && language != "zh" && language != "zh-CN" {
+				if translated, err := translateText(statusDesc, "zh", language); err == nil {
+					statusDesc = translated
+				}
+				time.Sleep(50 * time.Millisecond) // Small delay
 			}
 
 			body.WriteString(fmt.Sprintf(`<tr class="error-row"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
-				record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription(), record.IP))
+				record.RegionName, city, record.ISP, responseTime, record.HTTPCode, statusDesc, record.IP))
 		}
 		body.WriteString(`</table>`)
 
 	default: // 全部正常
 		// Show all normal regions
-		body.WriteString(`<h3 class="success">全部正常 (共` + fmt.Sprintf("%d", summary.TotalNodes) + `個)：</h3>`)
+		body.WriteString(fmt.Sprintf(`<h3 class="success">%s (%s%d%s)：</h3>`,
+			allNormalTitle, "共", summary.TotalNodes, countSuffix))
 		body.WriteString(`<table>`)
-		body.WriteString(`<tr><th>省份</th><th>城市</th><th>電訊商</th><th>響應時間</th><th>狀態碼</th><th>IP地址</th></tr>`)
+		body.WriteString(fmt.Sprintf(`<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>`,
+			provinceHeader, cityHeader, ispHeader, responseTimeHeader, statusCodeHeader, ipHeader))
 
 		for _, record := range req.Records {
 			city := req.extractCityName(record)
@@ -650,7 +788,6 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain string) (st
 	}
 
 	body.WriteString(`</div></body></html>`)
-
 	htmlBody := body.String()
 
 	// LOG THE RAW EMAIL MESSAGE FOR PREVIEW
