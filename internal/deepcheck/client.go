@@ -592,6 +592,7 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain, language s
 	allNormalTitle := "全部正常"
 	timeoutText := "超時"
 	countSuffix := "個"
+	totalPrefix := "共"
 
 	// Translate content if not Chinese
 	if language != "" && language != "zh" && language != "zh-CN" {
@@ -649,6 +650,9 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain, language s
 		if translated, err := translateText(countSuffix, "zh", language); err == nil {
 			countSuffix = translated
 		}
+		if translated, err := translateText(totalPrefix, "zh", language); err == nil { // Add this line
+			totalPrefix = translated
+		}
 
 		// Translate status text (handling complex format)
 		statusOnlyText := summary.Status // Just the status part
@@ -698,7 +702,7 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain, language s
 	case "部分異常":
 		// Show error regions first
 		body.WriteString(fmt.Sprintf(`<h3 class="danger">%s (%s%d%s)：</h3>`,
-			errorRegionsTitle, "共", summary.ErrorNodes, countSuffix))
+			errorRegionsTitle, totalPrefix, summary.ErrorNodes, countSuffix))
 		body.WriteString(`<table>`)
 		body.WriteString(fmt.Sprintf(`<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>`,
 			provinceHeader, cityHeader, ispHeader, responseTimeHeader, statusCodeHeader, statusDescHeader, ipHeader))
@@ -728,7 +732,7 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain, language s
 
 		// Show normal regions
 		body.WriteString(fmt.Sprintf(`<h3 class="success">%s (%s%d%s)：</h3>`,
-			normalRegionsTitle, "共", summary.SuccessNodes, countSuffix))
+			normalRegionsTitle, totalPrefix, summary.SuccessNodes, countSuffix))
 		body.WriteString(`<table>`)
 		body.WriteString(fmt.Sprintf(`<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>`,
 			provinceHeader, cityHeader, ispHeader, responseTimeHeader, statusCodeHeader, ipHeader))
@@ -745,7 +749,7 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain, language s
 	case "全部異常":
 		// Show all error regions
 		body.WriteString(fmt.Sprintf(`<h3 class="danger">%s (%s%d%s)：</h3>`,
-			allErrorTitle, "共", summary.ErrorNodes, countSuffix))
+			allErrorTitle, totalPrefix, summary.ErrorNodes, countSuffix))
 		body.WriteString(`<table>`)
 		body.WriteString(fmt.Sprintf(`<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>`,
 			provinceHeader, cityHeader, ispHeader, responseTimeHeader, statusCodeHeader, statusDescHeader, ipHeader))
@@ -774,7 +778,7 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain, language s
 	default: // 全部正常
 		// Show all normal regions
 		body.WriteString(fmt.Sprintf(`<h3 class="success">%s (%s%d%s)：</h3>`,
-			allNormalTitle, "共", summary.TotalNodes, countSuffix))
+			allNormalTitle, totalPrefix, summary.TotalNodes, countSuffix))
 		body.WriteString(`<table>`)
 		body.WriteString(fmt.Sprintf(`<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>`,
 			provinceHeader, cityHeader, ispHeader, responseTimeHeader, statusCodeHeader, ipHeader))

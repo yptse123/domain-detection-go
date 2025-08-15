@@ -2,10 +2,14 @@ package notification
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
+	"net/http"
 	"net/smtp"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -390,8 +394,8 @@ func (s *EmailService) SendDomainStatusNotification(domain model.Domain, statusC
 			}
 		}
 
-		// Send email
-		subject, body := s.formatEmailMessage(notificationType, domain, formattedTime)
+		// Send email with language support
+		subject, body := s.formatEmailMessage(notificationType, domain, formattedTime, config.Language)
 
 		if err := s.sendEmail(config.EmailAddress, subject, body); err != nil {
 			log.Printf("Failed to send email notification to %s: %v", config.EmailAddress, err)
@@ -415,78 +419,242 @@ func (s *EmailService) SendDomainStatusNotification(domain model.Domain, statusC
 	return nil
 }
 
-// formatEmailMessage formats the email subject and body
-func (s *EmailService) formatEmailMessage(notificationType string, domain model.Domain, formattedTime string) (string, string) {
+// translateText translates text using Google Translate API (free tier) - add this helper function
+func translateText(text, sourceLang, targetLang string) (string, error) {
+	// Use Google Translate's free web API endpoint
+	baseURL := "https://translate.googleapis.com/translate_a/single"
+
+	params := url.Values{}
+	params.Set("client", "gtx")
+	params.Set("sl", sourceLang) // source language
+	params.Set("tl", targetLang) // target language
+	params.Set("dt", "t")        // return translation
+	params.Set("q", text)        // text to translate
+
+	fullURL := baseURL + "?" + params.Encode()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(fullURL)
+	if err != nil {
+		return "", fmt.Errorf("translation request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("translation API returned status %d", resp.StatusCode)
+	}
+
+	// The response is a complex nested array, we need to parse it carefully
+	var result []interface{}
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode translation response: %w", err)
+	}
+
+	// Extract translated text from the response structure
+	if len(result) > 0 {
+		if translations, ok := result[0].([]interface{}); ok {
+			var translatedParts []string
+			for _, translation := range translations {
+				if part, ok := translation.([]interface{}); ok && len(part) > 0 {
+					if translatedText, ok := part[0].(string); ok {
+						translatedParts = append(translatedParts, translatedText)
+					}
+				}
+			}
+			if len(translatedParts) > 0 {
+				return strings.Join(translatedParts, ""), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("unexpected response structure from translation API")
+}
+
+// formatEmailMessage formats the email subject and body with translation support
+func (s *EmailService) formatEmailMessage(notificationType string, domain model.Domain, formattedTime string, language string) (string, string) {
+	// Default language to English if not provided
+	if language == "" {
+		language = "en"
+	}
+
+	// Define translatable text in English first
+	var subjectPrefix, alertTitle, recoveryTitle, statusTitle string
+	var domainLabel, statusCodeLabel, errorLabel, responseTimeLabel, lastCheckLabel string
+	var footerText string
+
+	switch notificationType {
+	case "down":
+		subjectPrefix = "🔴 Domain %s is DOWN"
+		alertTitle = "🔴 Domain Alert"
+		domainLabel = "Domain %s is currently DOWN"
+		statusCodeLabel = "Status Code:"
+		errorLabel = "Error:"
+		responseTimeLabel = "Response Time:"
+		lastCheckLabel = "Last Check:"
+		footerText = "This is an automated message from your Domain Monitoring Service."
+
+	case "up":
+		subjectPrefix = "🟢 Domain %s is back UP"
+		recoveryTitle = "🟢 Domain Recovery"
+		domainLabel = "Domain %s is back online!"
+		statusCodeLabel = "Status Code:"
+		responseTimeLabel = "Response Time:"
+		lastCheckLabel = "Last Check:"
+		footerText = "This is an automated message from your Domain Monitoring Service."
+
+	default:
+		subjectPrefix = "📊 Domain %s status update"
+		statusTitle = "📊 Domain Status Update"
+		domainLabel = "Domain %s status update"
+		statusCodeLabel = "Status Code:"
+		responseTimeLabel = "Response Time:"
+		lastCheckLabel = "Last Check:"
+		footerText = "This is an automated message from your Domain Monitoring Service."
+	}
+
+	// Translate text if language is not English
+	if language != "en" {
+		log.Printf("[EMAIL] Translating email content from English to %s", language)
+
+		// Translate all text elements with error handling
+		if translated, err := translateText("Domain", "en", language); err == nil {
+			// Replace "Domain" in patterns
+			if notificationType == "down" {
+				if translatedDown, err := translateText("is DOWN", "en", language); err == nil {
+					subjectPrefix = fmt.Sprintf("🔴 %s %%s %s", translated, translatedDown)
+					domainLabel = fmt.Sprintf("%s %%s %s", translated, func() string {
+						if t, err := translateText("is currently DOWN", "en", language); err == nil {
+							return t
+						}
+						return "is currently DOWN"
+					}())
+				}
+			} else if notificationType == "up" {
+				if translatedUp, err := translateText("is back UP", "en", language); err == nil {
+					subjectPrefix = fmt.Sprintf("🟢 %s %%s %s", translated, translatedUp)
+					domainLabel = fmt.Sprintf("%s %%s %s", translated, func() string {
+						if t, err := translateText("is back online!", "en", language); err == nil {
+							return t
+						}
+						return "is back online!"
+					}())
+				}
+			} else {
+				if translatedStatus, err := translateText("status update", "en", language); err == nil {
+					subjectPrefix = fmt.Sprintf("📊 %s %%s %s", translated, translatedStatus)
+					domainLabel = fmt.Sprintf("%s %%s %s", translated, translatedStatus)
+				}
+			}
+		}
+
+		// Translate titles
+		if notificationType == "down" {
+			if translated, err := translateText("Domain Alert", "en", language); err == nil {
+				alertTitle = "🔴 " + translated
+			}
+		} else if notificationType == "up" {
+			if translated, err := translateText("Domain Recovery", "en", language); err == nil {
+				recoveryTitle = "🟢 " + translated
+			}
+		} else {
+			if translated, err := translateText("Domain Status Update", "en", language); err == nil {
+				statusTitle = "📊 " + translated
+			}
+		}
+
+		// Translate labels
+		if translated, err := translateText("Status Code:", "en", language); err == nil {
+			statusCodeLabel = translated
+		}
+		if translated, err := translateText("Error:", "en", language); err == nil {
+			errorLabel = translated
+		}
+		if translated, err := translateText("Response Time:", "en", language); err == nil {
+			responseTimeLabel = translated
+		}
+		if translated, err := translateText("Last Check:", "en", language); err == nil {
+			lastCheckLabel = translated
+		}
+		if translated, err := translateText("This is an automated message from your Domain Monitoring Service.", "en", language); err == nil {
+			footerText = translated
+		}
+
+		// Add delay to avoid API rate limits
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Create subject and body with translated content
 	var subject, bodyTemplate string
 
 	switch notificationType {
 	case "down":
-		subject = fmt.Sprintf("🔴 Domain %s is DOWN", domain.Name)
+		subject = fmt.Sprintf(subjectPrefix, domain.Name)
 		bodyTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Domain Down Alert</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #e74c3c;">🔴 Domain Alert</h2>
-        <p><strong>Domain {{.Domain}} is currently DOWN</strong></p>
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <p><strong>Status Code:</strong> {{.Status}}</p>
-            <p><strong>Error:</strong> {{.Error}}</p>
-            <p><strong>Response Time:</strong> {{.ResponseTime}}ms</p>
-            <p><strong>Last Check:</strong> {{.LastCheck}} (UTC+8)</p>
-        </div>
-        <p style="color: #666; font-size: 12px;">This is an automated message from your Domain Monitoring Service.</p>
-    </div>
-</body>
-</html>`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Domain Down Alert</title>
+            </head>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #e74c3c;">` + alertTitle + `</h2>
+                    <p><strong>` + fmt.Sprintf(domainLabel, "{{.Domain}}") + `</strong></p>
+                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                        <p><strong>` + statusCodeLabel + `</strong> {{.Status}}</p>
+                        <p><strong>` + errorLabel + `</strong> {{.Error}}</p>
+                        <p><strong>` + responseTimeLabel + `</strong> {{.ResponseTime}}ms</p>
+                        <p><strong>` + lastCheckLabel + `</strong> {{.LastCheck}} (UTC+8)</p>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">` + footerText + `</p>
+                </div>
+            </body>
+            </html>`
 	case "up":
-		subject = fmt.Sprintf("🟢 Domain %s is back UP", domain.Name)
+		subject = fmt.Sprintf(subjectPrefix, domain.Name)
 		bodyTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Domain Recovery Alert</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #27ae60;">🟢 Domain Recovery</h2>
-        <p><strong>Domain {{.Domain}} is back online!</strong></p>
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <p><strong>Status Code:</strong> {{.Status}}</p>
-            <p><strong>Response Time:</strong> {{.ResponseTime}}ms</p>
-            <p><strong>Last Check:</strong> {{.LastCheck}} (UTC+8)</p>
-        </div>
-        <p style="color: #666; font-size: 12px;">This is an automated message from your Domain Monitoring Service.</p>
-    </div>
-</body>
-</html>`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Domain Recovery Alert</title>
+            </head>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #27ae60;">` + recoveryTitle + `</h2>
+                    <p><strong>` + fmt.Sprintf(domainLabel, "{{.Domain}}") + `</strong></p>
+                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                        <p><strong>` + statusCodeLabel + `</strong> {{.Status}}</p>
+                        <p><strong>` + responseTimeLabel + `</strong> {{.ResponseTime}}ms</p>
+                        <p><strong>` + lastCheckLabel + `</strong> {{.LastCheck}} (UTC+8)</p>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">` + footerText + `</p>
+                </div>
+            </body>
+            </html>`
 	default:
-		subject = fmt.Sprintf("📊 Domain %s status update", domain.Name)
+		subject = fmt.Sprintf(subjectPrefix, domain.Name)
 		bodyTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Domain Status Update</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #3498db;">📊 Domain Status Update</h2>
-        <p><strong>Domain {{.Domain}} status update</strong></p>
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <p><strong>Status Code:</strong> {{.Status}}</p>
-            <p><strong>Response Time:</strong> {{.ResponseTime}}ms</p>
-            <p><strong>Last Check:</strong> {{.LastCheck}} (UTC+8)</p>
-        </div>
-        <p style="color: #666; font-size: 12px;">This is an automated message from your Domain Monitoring Service.</p>
-    </div>
-</body>
-</html>`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Domain Status Update</title>
+            </head>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #3498db;">` + statusTitle + `</h2>
+                    <p><strong>` + fmt.Sprintf(domainLabel, "{{.Domain}}") + `</strong></p>
+                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                        <p><strong>` + statusCodeLabel + `</strong> {{.Status}}</p>
+                        <p><strong>` + responseTimeLabel + `</strong> {{.ResponseTime}}ms</p>
+                        <p><strong>` + lastCheckLabel + `</strong> {{.LastCheck}} (UTC+8)</p>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">` + footerText + `</p>
+                </div>
+            </body>
+            </html>`
 	}
 
 	// Execute template
