@@ -485,7 +485,7 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 
 	switch notificationType {
 	case "down":
-		subjectPrefix = "🔴 Domain name %s is unreachable"
+		subjectPrefix = "🔴 Domain name %s is currently unreachable"
 		alertTitle = "🔴 Domain name alert"
 		domainLabel = "Domain name %s is currently unreachable"
 		statusCodeLabel = "Status Code:"
@@ -522,7 +522,7 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 			// Replace "Domain" in patterns
 			switch notificationType {
 			case "down":
-				if translatedDown, err := translateText("is unreachable", "en", language); err == nil {
+				if translatedDown, err := translateText("is currently unreachable", "en", language); err == nil {
 					subjectPrefix = fmt.Sprintf("🔴 %s %%s %s", translated, translatedDown)
 					domainLabel = fmt.Sprintf("%s %%s %s", translated, func() string {
 						if t, err := translateText("is currently unreachable", "en", language); err == nil {
