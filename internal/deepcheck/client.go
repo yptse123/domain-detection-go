@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -27,6 +28,15 @@ type DeepCheckRequest struct {
 type DeepCheckResponse struct {
 	OrderID        string `json:"orderID"`
 	ITDOG_TEST_URL string `json:"ITDOG_TEST_URL"`
+}
+
+// Add translation service at the top of the file
+type GoogleTranslateResponse struct {
+	Data struct {
+		Translations []struct {
+			TranslatedText string `json:"translatedText"`
+		} `json:"translations"`
+	} `json:"data"`
 }
 
 // NewDeepCheckClient creates a new deep check client
@@ -251,14 +261,14 @@ func (req *DeepCheckCallbackRequest) AnalyzeResults(targetDomain string) *DeepCh
 	return summary
 }
 
-// FormatTelegramMessage formats the callback results for Telegram (split into multiple messages if needed)
-func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain string) []string {
+// FormatTelegramMessage formats the callback results for Telegram with translation support
+func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain, language string) []string {
 	summary := req.AnalyzeResults(targetDomain)
 
 	var messages []string
 	const maxMessageLength = 4000 // Leave some buffer for safety
 
-	// Message 1: Header and Summary
+	// Message 1: Header and Summary (in Chinese first)
 	var headerMessage strings.Builder
 	headerMessage.WriteString("🌐 **深度網絡檢測報告**\n\n")
 	headerMessage.WriteString(fmt.Sprintf("%s **%s**：%d/%d 節點正常 (%.1f%%)\n",
@@ -284,6 +294,28 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain string) 
 		messages = append(messages, detailMessages...)
 	}
 
+	// Translate messages if language is not Chinese (zh) and not empty
+	if language != "" && language != "zh" && language != "zh-CN" {
+		log.Printf("[DEEP-CHECK] Translating messages from Chinese to %s", language)
+		translatedMessages := make([]string, len(messages))
+
+		for i, msg := range messages {
+			translated, err := translateText(msg, "zh", language)
+			if err != nil {
+				log.Printf("[DEEP-CHECK] Translation failed for message %d: %v, using original", i+1, err)
+				translatedMessages[i] = msg
+			} else {
+				translatedMessages[i] = translated
+				log.Printf("[DEEP-CHECK] Successfully translated message %d", i+1)
+			}
+
+			// Add small delay to avoid hitting API rate limits
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		messages = translatedMessages
+	}
+
 	// Log all messages for preview
 	log.Printf("[DEEP-CHECK] TELEGRAM MESSAGES COUNT: %d", len(messages))
 	for i, msg := range messages {
@@ -291,6 +323,58 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain string) 
 	}
 
 	return messages
+}
+
+// translateText translates text using Google Translate API (free tier)
+func translateText(text, sourceLang, targetLang string) (string, error) {
+	// Use Google Translate's free web API endpoint
+	baseURL := "https://translate.googleapis.com/translate_a/single"
+
+	params := url.Values{}
+	params.Set("client", "gtx")
+	params.Set("sl", sourceLang) // source language
+	params.Set("tl", targetLang) // target language
+	params.Set("dt", "t")        // return translation
+	params.Set("q", text)        // text to translate
+
+	fullURL := baseURL + "?" + params.Encode()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(fullURL)
+	if err != nil {
+		return "", fmt.Errorf("translation request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("translation API returned status %d", resp.StatusCode)
+	}
+
+	// The response is a complex nested array, we need to parse it carefully
+	var result []interface{}
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode translation response: %w", err)
+	}
+
+	// Extract translated text from the response structure
+	if len(result) > 0 {
+		if translations, ok := result[0].([]interface{}); ok {
+			var translatedParts []string
+			for _, translation := range translations {
+				if part, ok := translation.([]interface{}); ok && len(part) > 0 {
+					if translatedText, ok := part[0].(string); ok {
+						translatedParts = append(translatedParts, translatedText)
+					}
+				}
+			}
+			if len(translatedParts) > 0 {
+				return strings.Join(translatedParts, ""), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("unexpected response structure from translation API")
 }
 
 // formatAllNormalMessages formats messages for all normal status

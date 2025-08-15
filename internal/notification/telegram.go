@@ -89,7 +89,7 @@ func (s *TelegramService) SetupBot() (model.TelegramBot, error) {
 	}
 
 	if !response.OK {
-		return model.TelegramBot{}, fmt.Errorf("Telegram API error: %s", string(body))
+		return model.TelegramBot{}, fmt.Errorf("telegram API error: %s", string(body))
 	}
 
 	return model.TelegramBot{
@@ -676,7 +676,7 @@ func (s *TelegramService) sendTelegramMessage(chatID, message string) error {
 			}
 		}
 
-		return fmt.Errorf("Telegram API error (status %d): %s", resp.StatusCode, string(body))
+		return fmt.Errorf("telegram API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	return nil
@@ -793,7 +793,7 @@ func (s *TelegramService) SendMessageWithKeyboard(chatID, message string, keyboa
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
-		return fmt.Errorf("Telegram API error (status %d): %s", resp.StatusCode, string(body))
+		return fmt.Errorf("telegram API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	return nil
@@ -937,7 +937,7 @@ func (s *TelegramService) SendCustomMessage(userID int, message string) error {
 // sendMessage sends a message to a specific chat ID (helper method)
 func (s *TelegramService) sendMessage(chatID, message string) error {
 	if s.httpClient == nil {
-		return fmt.Errorf("Telegram client not initialized")
+		return fmt.Errorf("telegram client not initialized")
 	}
 
 	// Prepare the message payload
@@ -976,9 +976,46 @@ func (s *TelegramService) sendMessage(chatID, message string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("Telegram API error: Status %d, Body: %s", resp.StatusCode, string(body))
-		return fmt.Errorf("Telegram API returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("telegram API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	log.Printf("Message sent successfully to chat %s", chatID)
+	return nil
+}
+
+// SendMultipleMessagesToConfig sends multiple messages to a specific telegram configuration
+func (s *TelegramService) SendMultipleMessagesToConfig(config model.TelegramConfig, messages []string) error {
+	if !config.IsActive {
+		return fmt.Errorf("telegram configuration is not active")
+	}
+
+	var sentCount int
+	var lastError error
+
+	for i, message := range messages {
+		log.Printf("Sending message %d/%d to chat %s", i+1, len(messages), config.ChatID)
+
+		if err := s.sendMessage(config.ChatID, message); err != nil {
+			log.Printf("Failed to send message %d to chat %s: %v", i+1, config.ChatID, err)
+			lastError = err
+			continue
+		}
+
+		sentCount++
+
+		// Add delay between messages to avoid rate limiting
+		if i < len(messages)-1 {
+			time.Sleep(1 * time.Second)
+		}
+	}
+
+	if sentCount == 0 {
+		return fmt.Errorf("failed to send any messages to chat %s: %w", config.ChatID, lastError)
+	}
+
+	if sentCount < len(messages) {
+		log.Printf("WARNING: Only sent %d/%d messages to chat %s", sentCount, len(messages), config.ChatID)
+	}
+
 	return nil
 }

@@ -139,18 +139,43 @@ func (h *CallbackHandler) processDeepCheckCallback(requestID string, callback *d
 	h.sendDeepCheckNotifications(requestID, *domain, callback, order.DomainName)
 }
 
-// sendDeepCheckNotifications sends the formatted deep check results to user's notification channels
+// Update the sendDeepCheckNotifications method
 func (h *CallbackHandler) sendDeepCheckNotifications(requestID string, domain model.Domain, callback *deepcheck.DeepCheckCallbackRequest, targetDomain string) {
 	log.Printf("[CALLBACK-%s] Sending deep check notifications for domain %s (User: %d)",
 		requestID, domain.Name, domain.UserID)
 
-	// Send Telegram notification (multiple messages)
+	// Send Telegram notification (multiple messages with language support)
 	if h.telegramService != nil {
-		telegramMessages := callback.FormatTelegramMessage(targetDomain) // Now returns []string
-		if err := h.telegramService.SendMultipleCustomMessages(domain.UserID, telegramMessages); err != nil {
-			log.Printf("[CALLBACK-%s] ERROR: Failed to send Telegram notifications: %v", requestID, err)
+		// Get user's Telegram configurations to determine languages
+		configs, err := h.telegramService.GetTelegramConfigsForUser(domain.UserID)
+		if err != nil {
+			log.Printf("[CALLBACK-%s] ERROR: Failed to get Telegram configs: %v", requestID, err)
+		} else if len(configs) > 0 {
+			// Send to each config with their preferred language
+			for _, config := range configs {
+				if !config.IsActive {
+					continue
+				}
+
+				language := config.Language
+				if language == "" {
+					language = "en" // Default to English
+				}
+
+				log.Printf("[CALLBACK-%s] Formatting Telegram messages for language: %s", requestID, language)
+				telegramMessages := callback.FormatTelegramMessage(targetDomain, language)
+
+				// Send messages to this specific config
+				if err := h.telegramService.SendMultipleMessagesToConfig(config, telegramMessages); err != nil {
+					log.Printf("[CALLBACK-%s] ERROR: Failed to send Telegram messages to config %d: %v",
+						requestID, config.ID, err)
+				} else {
+					log.Printf("[CALLBACK-%s] Successfully sent %d Telegram messages to config %d (%s)",
+						requestID, len(telegramMessages), config.ID, language)
+				}
+			}
 		} else {
-			log.Printf("[CALLBACK-%s] Successfully sent %d Telegram messages", requestID, len(telegramMessages))
+			log.Printf("[CALLBACK-%s] No active Telegram configs found for user %d", requestID, domain.UserID)
 		}
 	}
 
