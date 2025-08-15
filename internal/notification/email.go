@@ -485,9 +485,9 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 
 	switch notificationType {
 	case "down":
-		subjectPrefix = "🔴 Domain %s is DOWN"
-		alertTitle = "🔴 Domain Alert"
-		domainLabel = "Domain %s is currently DOWN"
+		subjectPrefix = "🔴 Domain name %s is unreachable"
+		alertTitle = "🔴 Domain name Alert"
+		domainLabel = "Domain name %s is currently unreachable"
 		statusCodeLabel = "Status Code:"
 		errorLabel = "Error:"
 		responseTimeLabel = "Response Time:"
@@ -495,18 +495,18 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 		footerText = "This is an automated message from your Domain Monitoring Service."
 
 	case "up":
-		subjectPrefix = "🟢 Domain %s is back UP"
-		recoveryTitle = "🟢 Domain Recovery"
-		domainLabel = "Domain %s is back online!"
+		subjectPrefix = "🟢 Domain name %s is back to normal"
+		recoveryTitle = "🟢 Domain name back to Normal"
+		domainLabel = "Domain name %s is back to normal!"
 		statusCodeLabel = "Status Code:"
 		responseTimeLabel = "Response Time:"
 		lastCheckLabel = "Last Check:"
 		footerText = "This is an automated message from your Domain Monitoring Service."
 
 	default:
-		subjectPrefix = "📊 Domain %s status update"
-		statusTitle = "📊 Domain Status Update"
-		domainLabel = "Domain %s status update"
+		subjectPrefix = "📊 Domain name %s status update"
+		statusTitle = "📊 Domain name status Update"
+		domainLabel = "Domain name %s status update"
 		statusCodeLabel = "Status Code:"
 		responseTimeLabel = "Response Time:"
 		lastCheckLabel = "Last Check:"
@@ -518,29 +518,30 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 		log.Printf("[EMAIL] Translating email content from English to %s", language)
 
 		// Translate all text elements with error handling
-		if translated, err := translateText("Domain", "en", language); err == nil {
+		if translated, err := translateText("Domain name", "en", language); err == nil {
 			// Replace "Domain" in patterns
-			if notificationType == "down" {
-				if translatedDown, err := translateText("is DOWN", "en", language); err == nil {
+			switch notificationType {
+			case "down":
+				if translatedDown, err := translateText("is unreachable", "en", language); err == nil {
 					subjectPrefix = fmt.Sprintf("🔴 %s %%s %s", translated, translatedDown)
 					domainLabel = fmt.Sprintf("%s %%s %s", translated, func() string {
-						if t, err := translateText("is currently DOWN", "en", language); err == nil {
+						if t, err := translateText("is currently unreachable", "en", language); err == nil {
 							return t
 						}
-						return "is currently DOWN"
+						return "is currently unreachable"
 					}())
 				}
-			} else if notificationType == "up" {
-				if translatedUp, err := translateText("is back UP", "en", language); err == nil {
+			case "up":
+				if translatedUp, err := translateText("is back to normal", "en", language); err == nil {
 					subjectPrefix = fmt.Sprintf("🟢 %s %%s %s", translated, translatedUp)
 					domainLabel = fmt.Sprintf("%s %%s %s", translated, func() string {
-						if t, err := translateText("is back online!", "en", language); err == nil {
+						if t, err := translateText("is back to normal!", "en", language); err == nil {
 							return t
 						}
-						return "is back online!"
+						return "is back to normal!"
 					}())
 				}
-			} else {
+			default:
 				if translatedStatus, err := translateText("status update", "en", language); err == nil {
 					subjectPrefix = fmt.Sprintf("📊 %s %%s %s", translated, translatedStatus)
 					domainLabel = fmt.Sprintf("%s %%s %s", translated, translatedStatus)
@@ -549,16 +550,17 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 		}
 
 		// Translate titles
-		if notificationType == "down" {
-			if translated, err := translateText("Domain Alert", "en", language); err == nil {
+		switch notificationType {
+		case "down":
+			if translated, err := translateText("Domain name Alert", "en", language); err == nil {
 				alertTitle = "🔴 " + translated
 			}
-		} else if notificationType == "up" {
-			if translated, err := translateText("Domain Recovery", "en", language); err == nil {
+		case "up":
+			if translated, err := translateText("Domain name back to Normal", "en", language); err == nil {
 				recoveryTitle = "🟢 " + translated
 			}
-		} else {
-			if translated, err := translateText("Domain Status Update", "en", language); err == nil {
+		default:
+			if translated, err := translateText("Domain name status Update", "en", language); err == nil {
 				statusTitle = "📊 " + translated
 			}
 		}
