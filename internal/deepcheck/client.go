@@ -592,7 +592,7 @@ func (req *DeepCheckCallbackRequest) FormatEmailMessage(targetDomain, language s
 	allNormalTitle := "全部正常"
 	timeoutText := "超時"
 	countSuffix := "個"
-	totalPrefix := "共"
+	totalPrefix := "總共"
 
 	// Translate content if not Chinese
 	if language != "" && language != "zh" && language != "zh-CN" {
