@@ -486,7 +486,7 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 	switch notificationType {
 	case "down":
 		subjectPrefix = "🔴 Domain name %s is unreachable"
-		alertTitle = "🔴 Domain name Alert"
+		alertTitle = "🔴 Domain name alert"
 		domainLabel = "Domain name %s is currently unreachable"
 		statusCodeLabel = "Status Code:"
 		errorLabel = "Error:"
@@ -496,7 +496,7 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 
 	case "up":
 		subjectPrefix = "🟢 Domain name %s is back to normal"
-		recoveryTitle = "🟢 Domain name back to Normal"
+		recoveryTitle = "🟢 Domain name back to normal"
 		domainLabel = "Domain name %s is back to normal!"
 		statusCodeLabel = "Status Code:"
 		responseTimeLabel = "Response Time:"
@@ -505,7 +505,7 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 
 	default:
 		subjectPrefix = "📊 Domain name %s status update"
-		statusTitle = "📊 Domain name status Update"
+		statusTitle = "📊 Domain name status update"
 		domainLabel = "Domain name %s status update"
 		statusCodeLabel = "Status Code:"
 		responseTimeLabel = "Response Time:"
@@ -552,15 +552,15 @@ func (s *EmailService) formatEmailMessage(notificationType string, domain model.
 		// Translate titles
 		switch notificationType {
 		case "down":
-			if translated, err := translateText("Domain name Alert", "en", language); err == nil {
+			if translated, err := translateText("Domain name alert", "en", language); err == nil {
 				alertTitle = "🔴 " + translated
 			}
 		case "up":
-			if translated, err := translateText("Domain name back to Normal", "en", language); err == nil {
+			if translated, err := translateText("Domain name back to normal", "en", language); err == nil {
 				recoveryTitle = "🟢 " + translated
 			}
 		default:
-			if translated, err := translateText("Domain name status Update", "en", language); err == nil {
+			if translated, err := translateText("Domain name status update", "en", language); err == nil {
 				statusTitle = "📊 " + translated
 			}
 		}
