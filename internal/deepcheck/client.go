@@ -385,16 +385,20 @@ func (req *DeepCheckCallbackRequest) formatAllNormalMessages(maxLength int) []st
 	message.WriteString("🟢 **全部節點連線正常**\n\n")
 	message.WriteString("**詳細結果**：\n")
 	message.WriteString("```\n")
-	message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
-	message.WriteString("---------|---------|-------|---------|-------\n")
+	message.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
+	// message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
+	message.WriteString("---------|---------|-------|---------\n")
+	// message.WriteString("---------|---------|-------|---------|-------\n")
 
 	baseContent := message.String()
 	currentMessage := baseContent
 
 	for _, record := range req.Records {
 		city := req.extractCityName(record)
-		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
-			record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
+		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms\n",
+			// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
+			record.RegionName, city, record.ISP, record.GetResponseTimeMs())
+		// record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
 
 		// Check if adding this record would exceed the limit
 		if len(currentMessage)+len(recordLine)+3 > maxLength { // +3 for closing ```
@@ -404,8 +408,10 @@ func (req *DeepCheckCallbackRequest) formatAllNormalMessages(maxLength int) []st
 
 			// Start new message
 			currentMessage = "**詳細結果 (續)**：\n```\n"
-			currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
-			currentMessage += "---------|---------|-------|---------|-------\n"
+			currentMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
+			// currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
+			currentMessage += "---------|---------|-------|---------\n"
+			// currentMessage += "---------|---------|-------|---------|-------\n"
 		}
 
 		currentMessage += recordLine
@@ -427,9 +433,9 @@ func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int)
 	errorMessage.WriteString("🟡 **部分異常**：部份地區訪問緩慢或跳轉多\n\n")
 	errorMessage.WriteString("**異常地區列表**：\n")
 	errorMessage.WriteString("```\n")
-	errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
+	errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
 	// errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n")
-	errorMessage.WriteString("---------|---------|-------|---------|-------\n")
+	errorMessage.WriteString("---------|---------|-------|---------\n")
 	// errorMessage.WriteString("---------|---------|-------|---------|-------|--------\n")
 
 	baseErrorContent := errorMessage.String()
@@ -443,9 +449,9 @@ func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int)
 			if record.HTTPCode == 0 {
 				responseTime = "–"
 			}
-			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d\n",
+			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s\n",
 				// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
-				record.RegionName, city, record.ISP, responseTime, record.HTTPCode)
+				record.RegionName, city, record.ISP, responseTime)
 			// record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
 
 			if len(currentErrorMessage)+len(recordLine)+3 > maxLength {
@@ -453,9 +459,9 @@ func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int)
 				messages = append(messages, currentErrorMessage)
 
 				currentErrorMessage = "**異常地區列表 (續)**：\n```\n"
-				currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
+				currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
 				// currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n"
-				currentErrorMessage += "---------|---------|-------|---------|-------\n"
+				currentErrorMessage += "---------|---------|-------|---------\n"
 				// currentErrorMessage += "---------|---------|-------|---------|-------|--------\n"
 			}
 
@@ -470,8 +476,10 @@ func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int)
 	var normalMessage strings.Builder
 	normalMessage.WriteString("**正常地區**：\n")
 	normalMessage.WriteString("```\n")
-	normalMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
-	normalMessage.WriteString("---------|---------|-------|---------|-------\n")
+	normalMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
+	// normalMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
+	normalMessage.WriteString("---------|---------|-------|---------\n")
+	// normalMessage.WriteString("---------|---------|-------|---------|-------\n")
 
 	baseNormalContent := normalMessage.String()
 	currentNormalMessage := baseNormalContent
@@ -480,16 +488,20 @@ func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int)
 	for _, record := range req.Records {
 		if record.IsHealthy() {
 			city := req.extractCityName(record)
-			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
-				record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
+			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms\n",
+				// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
+				record.RegionName, city, record.ISP, record.GetResponseTimeMs())
+			// record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
 
 			if len(currentNormalMessage)+len(recordLine)+3 > maxLength {
 				currentNormalMessage += "```"
 				messages = append(messages, currentNormalMessage)
 
 				currentNormalMessage = "**正常地區 (續)**：\n```\n"
-				currentNormalMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
-				currentNormalMessage += "---------|---------|-------|---------|-------\n"
+				currentNormalMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
+				// currentNormalMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
+				currentNormalMessage += "---------|---------|-------|---------\n"
+				// currentNormalMessage += "---------|---------|-------|---------|-------\n"
 			}
 
 			currentNormalMessage += recordLine
@@ -511,9 +523,9 @@ func (req *DeepCheckCallbackRequest) formatAllFailureMessages(maxLength int) []s
 	message.WriteString("🚨 **全部異常**\n\n")
 	message.WriteString("**詳細錯誤資訊**：\n")
 	message.WriteString("```\n")
-	message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
+	message.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
 	// message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n")
-	message.WriteString("---------|---------|-------|---------|-------\n")
+	message.WriteString("---------|---------|-------|---------\n")
 	// message.WriteString("---------|---------|-------|---------|-------|----------\n")
 
 	baseContent := message.String()
@@ -525,9 +537,9 @@ func (req *DeepCheckCallbackRequest) formatAllFailureMessages(maxLength int) []s
 		if record.HTTPCode == 0 {
 			responseTime = "–"
 		}
-		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d\n",
+		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s\n",
 			// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
-			record.RegionName, city, record.ISP, responseTime, record.HTTPCode)
+			record.RegionName, city, record.ISP, responseTime)
 		// record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
 
 		if len(currentMessage)+len(recordLine)+3 > maxLength {
@@ -535,9 +547,9 @@ func (req *DeepCheckCallbackRequest) formatAllFailureMessages(maxLength int) []s
 			messages = append(messages, currentMessage)
 
 			currentMessage = "**詳細錯誤資訊 (續)**：\n```\n"
-			currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
+			currentMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
 			// currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n"
-			currentMessage += "---------|---------|-------|---------|-------\n"
+			currentMessage += "---------|---------|-------|---------\n"
 			// currentMessage += "---------|---------|-------|---------|-------|----------\n"
 		}
 
