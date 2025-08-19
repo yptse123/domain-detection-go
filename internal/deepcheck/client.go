@@ -427,8 +427,10 @@ func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int)
 	errorMessage.WriteString("🟡 **部分異常**：部份地區訪問緩慢或跳轉多\n\n")
 	errorMessage.WriteString("**異常地區列表**：\n")
 	errorMessage.WriteString("```\n")
-	errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n")
-	errorMessage.WriteString("---------|---------|-------|---------|-------|--------\n")
+	errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
+	// errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n")
+	errorMessage.WriteString("---------|---------|-------|---------|-------\n")
+	// errorMessage.WriteString("---------|---------|-------|---------|-------|--------\n")
 
 	baseErrorContent := errorMessage.String()
 	currentErrorMessage := baseErrorContent
@@ -441,16 +443,20 @@ func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int)
 			if record.HTTPCode == 0 {
 				responseTime = "–"
 			}
-			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
-				record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
+			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d\n",
+				// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
+				record.RegionName, city, record.ISP, responseTime, record.HTTPCode)
+			// record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
 
 			if len(currentErrorMessage)+len(recordLine)+3 > maxLength {
 				currentErrorMessage += "```"
 				messages = append(messages, currentErrorMessage)
 
 				currentErrorMessage = "**異常地區列表 (續)**：\n```\n"
-				currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n"
-				currentErrorMessage += "---------|---------|-------|---------|-------|--------\n"
+				currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
+				// currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n"
+				currentErrorMessage += "---------|---------|-------|---------|-------\n"
+				// currentErrorMessage += "---------|---------|-------|---------|-------|--------\n"
 			}
 
 			currentErrorMessage += recordLine
@@ -505,8 +511,10 @@ func (req *DeepCheckCallbackRequest) formatAllFailureMessages(maxLength int) []s
 	message.WriteString("🚨 **全部異常**\n\n")
 	message.WriteString("**詳細錯誤資訊**：\n")
 	message.WriteString("```\n")
-	message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n")
-	message.WriteString("---------|---------|-------|---------|-------|----------\n")
+	message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
+	// message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n")
+	message.WriteString("---------|---------|-------|---------|-------\n")
+	// message.WriteString("---------|---------|-------|---------|-------|----------\n")
 
 	baseContent := message.String()
 	currentMessage := baseContent
@@ -517,16 +525,20 @@ func (req *DeepCheckCallbackRequest) formatAllFailureMessages(maxLength int) []s
 		if record.HTTPCode == 0 {
 			responseTime = "–"
 		}
-		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
-			record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
+		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d\n",
+			// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
+			record.RegionName, city, record.ISP, responseTime, record.HTTPCode)
+		// record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
 
 		if len(currentMessage)+len(recordLine)+3 > maxLength {
 			currentMessage += "```"
 			messages = append(messages, currentMessage)
 
 			currentMessage = "**詳細錯誤資訊 (續)**：\n```\n"
-			currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n"
-			currentMessage += "---------|---------|-------|---------|-------|----------\n"
+			currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
+			// currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n"
+			currentMessage += "---------|---------|-------|---------|-------\n"
+			// currentMessage += "---------|---------|-------|---------|-------|----------\n"
 		}
 
 		currentMessage += recordLine
