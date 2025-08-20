@@ -275,7 +275,7 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain, languag
 		summary.StatusEmoji, summary.Status, summary.SuccessNodes, summary.TotalNodes, summary.SuccessRate))
 	headerMessage.WriteString(fmt.Sprintf("📍 **目標域名**：%s\n", targetDomain))
 	headerMessage.WriteString(fmt.Sprintf("🕓 **檢查時間**：%s\n", summary.CheckTime.Format("2006-01-02 15:04:05 (UTC+8)")))
-	headerMessage.WriteString(fmt.Sprintf("🔍 **訂單編號**：%s\n", req.OrderID))
+	// headerMessage.WriteString(fmt.Sprintf("🔍 **訂單編號**：%s\n", req.OrderID))
 
 	messages = append(messages, headerMessage.String())
 
