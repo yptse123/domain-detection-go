@@ -282,16 +282,16 @@ func (req *DeepCheckCallbackRequest) FormatTelegramMessage(targetDomain, languag
 	// Message 2+: Detailed results based on status
 	switch summary.Status {
 	case "全部正常":
-		detailMessages := req.formatAllNormalMessages(maxMessageLength)
-		messages = append(messages, detailMessages...)
+		// detailMessages := req.formatAllNormalMessages(maxMessageLength)
+		// messages = append(messages, detailMessages...)
 
 	case "部分異常":
-		detailMessages := req.formatPartialFailureMessages(maxMessageLength)
-		messages = append(messages, detailMessages...)
+		// detailMessages := req.formatPartialFailureMessages(maxMessageLength)
+		// messages = append(messages, detailMessages...)
 
 	default: // 全部異常
-		detailMessages := req.formatAllFailureMessages(maxMessageLength)
-		messages = append(messages, detailMessages...)
+		// detailMessages := req.formatAllFailureMessages(maxMessageLength)
+		// messages = append(messages, detailMessages...)
 	}
 
 	// Translate messages if language is not Chinese (zh) and not empty
@@ -383,43 +383,43 @@ func (req *DeepCheckCallbackRequest) formatAllNormalMessages(maxLength int) []st
 
 	var message strings.Builder
 	message.WriteString("🟢 **全部節點連線正常**\n\n")
-	// message.WriteString("**詳細結果**：\n")
-	// message.WriteString("```\n")
-	// message.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
-	// // message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
-	// message.WriteString("---------|---------|-------|---------\n")
-	// // message.WriteString("---------|---------|-------|---------|-------\n")
+	message.WriteString("**詳細結果**：\n")
+	message.WriteString("```\n")
+	message.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
+	// message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
+	message.WriteString("---------|---------|-------|---------\n")
+	// message.WriteString("---------|---------|-------|---------|-------\n")
 
-	// baseContent := message.String()
-	// currentMessage := baseContent
+	baseContent := message.String()
+	currentMessage := baseContent
 
-	// for _, record := range req.Records {
-	// 	city := req.extractCityName(record)
-	// 	recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms\n",
-	// 		// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
-	// 		record.RegionName, city, record.ISP, record.GetResponseTimeMs())
-	// 	// record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
+	for _, record := range req.Records {
+		city := req.extractCityName(record)
+		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms\n",
+			// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
+			record.RegionName, city, record.ISP, record.GetResponseTimeMs())
+		// record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
 
-	// 	// Check if adding this record would exceed the limit
-	// 	if len(currentMessage)+len(recordLine)+3 > maxLength { // +3 for closing ```
-	// 		// Close current message and start new one
-	// 		currentMessage += "```"
-	// 		messages = append(messages, currentMessage)
+		// Check if adding this record would exceed the limit
+		if len(currentMessage)+len(recordLine)+3 > maxLength { // +3 for closing ```
+			// Close current message and start new one
+			currentMessage += "```"
+			messages = append(messages, currentMessage)
 
-	// 		// Start new message
-	// 		currentMessage = "**詳細結果 (續)**：\n```\n"
-	// 		currentMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
-	// 		// currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
-	// 		currentMessage += "---------|---------|-------|---------\n"
-	// 		// currentMessage += "---------|---------|-------|---------|-------\n"
-	// 	}
+			// Start new message
+			currentMessage = "**詳細結果 (續)**：\n```\n"
+			currentMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
+			// currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
+			currentMessage += "---------|---------|-------|---------\n"
+			// currentMessage += "---------|---------|-------|---------|-------\n"
+		}
 
-	// 	currentMessage += recordLine
-	// }
+		currentMessage += recordLine
+	}
 
-	// // Close the last message
-	// currentMessage += "```"
-	// messages = append(messages, currentMessage)
+	// Close the last message
+	currentMessage += "```"
+	messages = append(messages, currentMessage)
 
 	return messages
 }
@@ -431,85 +431,85 @@ func (req *DeepCheckCallbackRequest) formatPartialFailureMessages(maxLength int)
 	// Message for error regions
 	var errorMessage strings.Builder
 	errorMessage.WriteString("🟡 **部分異常**：部份地區訪問緩慢或跳轉多\n\n")
-	// errorMessage.WriteString("**異常地區列表**：\n")
-	// errorMessage.WriteString("```\n")
-	// errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
-	// // errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n")
-	// errorMessage.WriteString("---------|---------|-------|---------\n")
-	// // errorMessage.WriteString("---------|---------|-------|---------|-------|--------\n")
+	errorMessage.WriteString("**異常地區列表**：\n")
+	errorMessage.WriteString("```\n")
+	errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
+	// errorMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n")
+	errorMessage.WriteString("---------|---------|-------|---------\n")
+	// errorMessage.WriteString("---------|---------|-------|---------|-------|--------\n")
 
-	// baseErrorContent := errorMessage.String()
-	// currentErrorMessage := baseErrorContent
+	baseErrorContent := errorMessage.String()
+	currentErrorMessage := baseErrorContent
 
-	// // Add error records
-	// for _, record := range req.Records {
-	// 	if !record.IsHealthy() {
-	// 		city := req.extractCityName(record)
-	// 		responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
-	// 		if record.HTTPCode == 0 {
-	// 			responseTime = "–"
-	// 		}
-	// 		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s\n",
-	// 			// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
-	// 			record.RegionName, city, record.ISP, responseTime)
-	// 		// record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
+	// Add error records
+	for _, record := range req.Records {
+		if !record.IsHealthy() {
+			city := req.extractCityName(record)
+			responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
+			if record.HTTPCode == 0 {
+				responseTime = "–"
+			}
+			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s\n",
+				// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
+				record.RegionName, city, record.ISP, responseTime)
+			// record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
 
-	// 		if len(currentErrorMessage)+len(recordLine)+3 > maxLength {
-	// 			currentErrorMessage += "```"
-	// 			messages = append(messages, currentErrorMessage)
+			if len(currentErrorMessage)+len(recordLine)+3 > maxLength {
+				currentErrorMessage += "```"
+				messages = append(messages, currentErrorMessage)
 
-	// 			currentErrorMessage = "**異常地區列表 (續)**：\n```\n"
-	// 			currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
-	// 			// currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n"
-	// 			currentErrorMessage += "---------|---------|-------|---------\n"
-	// 			// currentErrorMessage += "---------|---------|-------|---------|-------|--------\n"
-	// 		}
+				currentErrorMessage = "**異常地區列表 (續)**：\n```\n"
+				currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
+				// currentErrorMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 描述\n"
+				currentErrorMessage += "---------|---------|-------|---------\n"
+				// currentErrorMessage += "---------|---------|-------|---------|-------|--------\n"
+			}
 
-	// 		currentErrorMessage += recordLine
-	// 	}
-	// }
+			currentErrorMessage += recordLine
+		}
+	}
 
-	// currentErrorMessage += "```"
-	// messages = append(messages, currentErrorMessage)
+	currentErrorMessage += "```"
+	messages = append(messages, currentErrorMessage)
 
-	// // Message for normal regions
-	// var normalMessage strings.Builder
-	// normalMessage.WriteString("**正常地區**：\n")
-	// normalMessage.WriteString("```\n")
-	// normalMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
-	// // normalMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
-	// normalMessage.WriteString("---------|---------|-------|---------\n")
-	// // normalMessage.WriteString("---------|---------|-------|---------|-------\n")
+	// Message for normal regions
+	var normalMessage strings.Builder
+	normalMessage.WriteString("**正常地區**：\n")
+	normalMessage.WriteString("```\n")
+	normalMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
+	// normalMessage.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n")
+	normalMessage.WriteString("---------|---------|-------|---------\n")
+	// normalMessage.WriteString("---------|---------|-------|---------|-------\n")
 
-	// baseNormalContent := normalMessage.String()
-	// currentNormalMessage := baseNormalContent
+	baseNormalContent := normalMessage.String()
+	currentNormalMessage := baseNormalContent
 
-	// // Add normal records
-	// for _, record := range req.Records {
-	// 	if record.IsHealthy() {
-	// 		city := req.extractCityName(record)
-	// 		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms\n",
-	// 			// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
-	// 			record.RegionName, city, record.ISP, record.GetResponseTimeMs())
-	// 		// record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
+	// Add normal records
+	for _, record := range req.Records {
+		if record.IsHealthy() {
+			city := req.extractCityName(record)
+			recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms\n",
+				// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %4dms | %d\n",
+				record.RegionName, city, record.ISP, record.GetResponseTimeMs())
+			// record.RegionName, city, record.ISP, record.GetResponseTimeMs(), record.HTTPCode)
 
-	// 		if len(currentNormalMessage)+len(recordLine)+3 > maxLength {
-	// 			currentNormalMessage += "```"
-	// 			messages = append(messages, currentNormalMessage)
+			if len(currentNormalMessage)+len(recordLine)+3 > maxLength {
+				currentNormalMessage += "```"
+				messages = append(messages, currentNormalMessage)
 
-	// 			currentNormalMessage = "**正常地區 (續)**：\n```\n"
-	// 			currentNormalMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
-	// 			// currentNormalMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
-	// 			currentNormalMessage += "---------|---------|-------|---------\n"
-	// 			// currentNormalMessage += "---------|---------|-------|---------|-------\n"
-	// 		}
+				currentNormalMessage = "**正常地區 (續)**：\n```\n"
+				currentNormalMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
+				// currentNormalMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼\n"
+				currentNormalMessage += "---------|---------|-------|---------\n"
+				// currentNormalMessage += "---------|---------|-------|---------|-------\n"
+			}
 
-	// 		currentNormalMessage += recordLine
-	// 	}
-	// }
+			currentNormalMessage += recordLine
+		}
+	}
 
-	// currentNormalMessage += "```"
-	// messages = append(messages, currentNormalMessage)
+	currentNormalMessage += "```"
+	messages = append(messages, currentNormalMessage)
 
 	return messages
 }
@@ -521,43 +521,43 @@ func (req *DeepCheckCallbackRequest) formatAllFailureMessages(maxLength int) []s
 	var message strings.Builder
 	message.WriteString("🔴 **所有地區無法訪問域名**\n\n")
 	message.WriteString("🚨 **全部異常**\n\n")
-	// message.WriteString("**詳細錯誤資訊**：\n")
-	// message.WriteString("```\n")
-	// message.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
-	// // message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n")
-	// message.WriteString("---------|---------|-------|---------\n")
-	// // message.WriteString("---------|---------|-------|---------|-------|----------\n")
+	message.WriteString("**詳細錯誤資訊**：\n")
+	message.WriteString("```\n")
+	message.WriteString("省份      | 城市     | 電訊商 | 響應時間\n")
+	// message.WriteString("省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n")
+	message.WriteString("---------|---------|-------|---------\n")
+	// message.WriteString("---------|---------|-------|---------|-------|----------\n")
 
-	// baseContent := message.String()
-	// currentMessage := baseContent
+	baseContent := message.String()
+	currentMessage := baseContent
 
-	// for _, record := range req.Records {
-	// 	city := req.extractCityName(record)
-	// 	responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
-	// 	if record.HTTPCode == 0 {
-	// 		responseTime = "–"
-	// 	}
-	// 	recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s\n",
-	// 		// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
-	// 		record.RegionName, city, record.ISP, responseTime)
-	// 	// record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
+	for _, record := range req.Records {
+		city := req.extractCityName(record)
+		responseTime := fmt.Sprintf("%dms", record.GetResponseTimeMs())
+		if record.HTTPCode == 0 {
+			responseTime = "–"
+		}
+		recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s\n",
+			// recordLine := fmt.Sprintf("%-8s | %-7s | %-4s | %-7s | %-5d | %s\n",
+			record.RegionName, city, record.ISP, responseTime)
+		// record.RegionName, city, record.ISP, responseTime, record.HTTPCode, record.GetStatusDescription())
 
-	// 	if len(currentMessage)+len(recordLine)+3 > maxLength {
-	// 		currentMessage += "```"
-	// 		messages = append(messages, currentMessage)
+		if len(currentMessage)+len(recordLine)+3 > maxLength {
+			currentMessage += "```"
+			messages = append(messages, currentMessage)
 
-	// 		currentMessage = "**詳細錯誤資訊 (續)**：\n```\n"
-	// 		currentMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
-	// 		// currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n"
-	// 		currentMessage += "---------|---------|-------|---------\n"
-	// 		// currentMessage += "---------|---------|-------|---------|-------|----------\n"
-	// 	}
+			currentMessage = "**詳細錯誤資訊 (續)**：\n```\n"
+			currentMessage += "省份      | 城市     | 電訊商 | 響應時間\n"
+			// currentMessage += "省份      | 城市     | 電訊商 | 響應時間 | 狀態碼 | 問題描述\n"
+			currentMessage += "---------|---------|-------|---------\n"
+			// currentMessage += "---------|---------|-------|---------|-------|----------\n"
+		}
 
-	// 	currentMessage += recordLine
-	// }
+		currentMessage += recordLine
+	}
 
-	// currentMessage += "```"
-	// messages = append(messages, currentMessage)
+	currentMessage += "```"
+	messages = append(messages, currentMessage)
 
 	return messages
 }
